@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Caches / generated artifacts
+*.pkl
+*.faiss
+*.index
+*.db
+
+# PDFs / data files (avoid committing documents)
+*.pdf
+
+# Secrets
+.env
