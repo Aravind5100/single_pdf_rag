@@ -36,19 +36,6 @@ This project focuses on:
 ---
 
 ## 🏗️ System Architecture
-
-flowchart TD
-    A[PDF Document] --> B[Text Extraction\n(page-aware)]
-    B --> C[Chunking\n(overlap + metadata)]
-    C --> D[Local Embeddings\n(Ollama)]
-    D --> E[FAISS Vector Index]
-    E --> F[Hybrid Retrieval\n(vector + keyword)]
-    F --> G[Answer Generation\n(grounded)]
-    G --> H[Streamlit UI]
-
-    F --> I[Evaluation]
-    I --> J[Recall@K / MRR Reports]
-
 .
 ├── extract_pdf_text.py      # PDF → page-level text
 ├── chunk_strategy.py        # Chunking + normalization
@@ -67,77 +54,81 @@ flowchart TD
 ├── cache/                  # Persistent embeddings + FAISS
 └── docs/                   # PDFs used by the system
 
-📊 Evaluation Methodology
+## 📊 Evaluation Methodology
+
 Evaluation is retrieval-first, which is critical for RAG systems.
-Implemented metrics
-Recall@K
-Determines whether at least one correct source page is retrieved in the top-K results.
-MRR (Mean Reciprocal Rank)
-Measures how highly the first correct page is ranked.
-Ground truth is defined manually in eval/eval_dataset.jsonl using:
-fixed questions
-known correct page numbers
-negative (refusal) cases
+
+- Implemented metrics
+- Recall@K
+- Determines whether at least one correct source page is retrieved in the top-K results.
+- MRR (Mean Reciprocal Rank)
+- Measures how highly the first correct page is ranked.
+- Ground truth is defined manually in eval/eval_dataset.jsonl using:
+- fixed questions
+- known correct page numbers
+- negative (refusal) cases
+
 This ensures evaluation is:
-objective
-reproducible
-actionable for debugging
-💾 Persistence Design
+- objective
+- reproducible
+- actionable for debugging
+
+## 💾 Persistence Design
+
 To avoid re-embedding on every run, the system caches:
-embedded chunks (JSONL)
-FAISS index (binary)
-Cache keys are derived from:
-PDF content hash
-chunking parameters
-embedding model name
+
+- embedded chunks (JSONL)
+- FAISS index (binary)
+- Cache keys are derived from:
+- PDF content hash
+- chunking parameters
+- embedding model name
+
 This guarantees correctness while providing a significant speed-up on subsequent runs.
-🖥️ Streamlit UI
+
+##🖥️ Streamlit UI
+
 The Streamlit interface provides:
-interactive Q&A
-answer citations (page + chunk)
-expandable context inspection
-session-based chat history
-Run the app with:
-streamlit run main.py
-⚙️ Setup & Usage
-1️⃣ Start Ollama
+- interactive Q&A
+- answer citations (page + chunk)
+- expandable context inspection
+- session-based chat history
+- Run the app with:
+- streamlit run main.py
+
+## ⚙️ Setup & Usage
+
+1️⃣ **Start Ollama**
+
 ollama serve
 ollama pull nomic-embed-text
-2️⃣ Add a PDF
+
+2️⃣ **Add a PDF**
+
 Place your PDF inside:
-docs/
 Update pdf_path in main.py to point to the document.
-3️⃣ Run the app
+
+3️⃣ **Run the app**
+
 streamlit run main.py
+
 First run builds the cache
-Subsequent runs load instantly
-🧪 Run Evaluation
+
+**Subsequent runs load instantly**
+
+- 🧪 **Run Evaluation**
+
 python eval_runner.py
+
 Outputs:
 eval/eval_results.jsonl
 eval/eval_summary.json
-🔮 Future Work
-Multi-PDF ingestion
-Query rewriting and reranking
-Automated refusal correctness scoring
-Dockerization
-Extended evaluation dashboards
-📜 License
-MIT License
 
----
+🔮 **Future Work**
 
-## ✅ That’s it
+- Multi-PDF ingestion
+- Query rewriting and reranking
+- Automated refusal correctness scoring
+- Dockerization
+- Extended evaluation dashboards
 
-You now have:
-- a **GitHub-ready README**
-- a **system diagram that renders on GitHub**
-- **zero downloads required**
-- **single copy–paste**
-
-If you want next:
-- GitHub repo description + tags
-- Screenshots checklist
-- Interview explanation (2-minute version)
-
-Just tell me.
