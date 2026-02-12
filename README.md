@@ -37,18 +37,17 @@ This project focuses on:
 
 ## 🏗️ System Architecture
 
-```mermaid
 flowchart TD
-    A[PDF Document] --> B[Text Extraction<br/>(page-aware)]
-    B --> C[Chunking<br/>(overlap + metadata)]
-    C --> D[Local Embeddings<br/>(Ollama)]
+    A[PDF Document] --> B[Text Extraction\n(page-aware)]
+    B --> C[Chunking\n(overlap + metadata)]
+    C --> D[Local Embeddings\n(Ollama)]
     D --> E[FAISS Vector Index]
-    E --> F[Hybrid Retrieval<br/>(vector + keyword)]
-    F --> G[Answer Generation<br/>(grounded)]
+    E --> F[Hybrid Retrieval\n(vector + keyword)]
+    F --> G[Answer Generation\n(grounded)]
     G --> H[Streamlit UI]
 
     F --> I[Evaluation]
-    I -->|Recall@K / MRR| J[Evaluation Reports]
+    I --> J[Recall@K / MRR Reports]
 
 .
 ├── extract_pdf_text.py      # PDF → page-level text
