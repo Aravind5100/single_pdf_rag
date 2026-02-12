@@ -1,0 +1,7 @@
+{
+  "pdf_path": "/Users/aravindkompalli/Downloads/NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+  "num_cases": 10,
+  "num_scored_cases": 9,
+  "avg_recall_at_k": 1.0,
+  "mrr": 0.8055555555555556
+}

@@ -14,9 +14,13 @@ venv/
 *.faiss
 *.index
 *.db
+cache/
+.streanlit/
 
 # PDFs / data files (avoid committing documents)
 *.pdf
 
 # Secrets
 .env
+
+
