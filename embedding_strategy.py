@@ -1,5 +1,5 @@
 import requests
-import pickle
+
 OLLAMA_URL = "http://localhost:11434/api/embeddings"
 EMBED_MODEL = "nomic-embed-text"
 
@@ -28,6 +28,3 @@ def embed_chunks(chunks):
         })
 
     return embedded_chunks
-
-with open('embeddings_cache.pkl', 'wb') as f:
-    pickle.dump(embed_chunks, f)

@@ -15,7 +15,7 @@ venv/
 *.index
 *.db
 cache/
-.streanlit/
+.streamlit/
 
 # PDFs / data files (avoid committing documents)
 *.pdf

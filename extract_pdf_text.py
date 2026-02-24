@@ -1,20 +1,18 @@
 import fitz # PyMuPDF
 
-def extract_text_from_pdf(pdf_path : str):
-
-    doc= fitz.open(pdf_path)
-    pages =[]
+def extract_text_from_pdf(pdf_path: str):
+    doc = fitz.open(pdf_path)
+    pages = []
 
     for page_index in range(len(doc)):
-        page=doc[page_index]
-        text=page.get_text("text")
+        page = doc[page_index]
+        text = page.get_text("text")
+        text = text.replace("\u00a0", " ").strip()
 
-        text=text.replace("\u00a0"," ").strip() # replace non-breaking spaces with regular spaces
- 
         pages.append({
             "page_number": page_index + 1,
-            "text": text
-           })
-        
+            "text": text,
+        })
+
     return pages
 

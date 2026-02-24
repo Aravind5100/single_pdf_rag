@@ -60,15 +60,8 @@ def answer_question(question: str, index, embedded_chunks: list[dict], top_k: in
     retrieved = retrieve_chunks(embedded_chunks, indices)
     
     context = format_context(retrieved)
-
-    # print("\n=== RETRIEVED CHUNKS (PREVIEW) ===")
-    # for ch in retrieved:
-    #     print(f"Page {ch['page_number']} | {ch['chunk_id']} | {ch['text'][:120].replace('\n',' ')}")
-    # print("=================================\n")
-
     prompt = build_prompt(context, question)
     answer = generate_answer(prompt)
-
 
     return {
         "question": question,

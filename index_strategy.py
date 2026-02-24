@@ -36,18 +36,6 @@ def retrieve_chunks(embedded_chunks, indices):
             results.append(embedded_chunks[idx])
     return results
 
-# def debug_find_term(embedded_chunks, term: str, max_hits: int = 10):
-#     term_l = term.lower()
-#     hits = []
-#     for ch in embedded_chunks:
-#         if term_l in ch["text"].lower():
-#             hits.append(ch)
-
-#     print(f"\nFound {len(hits)} chunks containing '{term}'. Showing up to {max_hits}:\n")
-#     for ch in hits[:max_hits]:
-#         preview = ch["text"].replace("\n", " ")[:200]
-#         print(f"Page {ch['page_number']} | {ch.get('chunk_id','')} | {preview}")
-
 STOPWORDS = {"who", "is", "the", "a", "an", "what", "when", "where", "why", "how", "of", "to", "in", "on", "for", "and"}
 
 def keyword_search_indices(embedded_chunks, query: str, top_k: int = 5):

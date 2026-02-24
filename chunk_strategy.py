@@ -10,15 +10,14 @@ def normalize_for_search(text: str) -> str:
     return text.strip()
 
 def chunk_text(text: str, chunk_size: int = 900, overlap: int = 350):
-    
-    chunks =[]
-    start =0
+    chunks = []
+    start = 0
     text = text.strip()
-    text_length=len(text)
+    text_length = len(text)
 
     while start < text_length:
-        end= start + chunk_size
-        chunk=text[start:end].strip()
+        end = start + chunk_size
+        chunk = text[start:end].strip()
 
         if chunk:
             chunks.append(chunk)
@@ -44,8 +43,3 @@ def chunk_pages(pages):
             })
 
     return all_chunks
-
-
-
-
-
