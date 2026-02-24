@@ -46,7 +46,6 @@ flowchart TD
     E --> F["Hybrid Retrieval<br/>(vector + keyword)"]
     F --> G["Answer Generation<br/>(grounded)"]
     G --> H["Streamlit UI"]
-
     F --> I["Evaluation"]
     I -->|Recall@K / MRR| J["Evaluation Reports"]
 ```
