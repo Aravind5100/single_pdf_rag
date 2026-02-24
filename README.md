@@ -37,7 +37,7 @@ This project focuses on:
 
 ## 🏗️ System Architecture
 
-```mermaid
+```
 flowchart TD
     A["PDF Document"]
     B["Text Extraction<br/>page-aware"]
@@ -49,16 +49,6 @@ flowchart TD
     H["Streamlit UI"]
     I["Evaluation"]
     J["Evaluation Reports"]
-    
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-    G --> H
-    F --> I
-    I -->|Recall@K / MRR| J
 ```
 
 ### Project Structure
