@@ -39,15 +39,26 @@ This project focuses on:
 
 ```mermaid
 flowchart TD
-    A["PDF Document"] --> B["Text Extraction<br/>(page-aware)"]
-    B --> C["Chunking<br/>(overlap + metadata)"]
-    C --> D["Local Embeddings<br/>(Ollama)"]
-    D --> E["FAISS Vector Index"]
-    E --> F["Hybrid Retrieval<br/>(vector + keyword)"]
-    F --> G["Answer Generation<br/>(grounded)"]
-    G --> H["Streamlit UI"]
-    F --> I["Evaluation"]
-    I -->|Recall@K / MRR| J["Evaluation Reports"]
+    A["PDF Document"]
+    B["Text Extraction<br/>page-aware"]
+    C["Chunking<br/>overlap + metadata"]
+    D["Local Embeddings<br/>Ollama"]
+    E["FAISS Vector Index"]
+    F["Hybrid Retrieval<br/>vector + keyword"]
+    G["Answer Generation<br/>grounded"]
+    H["Streamlit UI"]
+    I["Evaluation"]
+    J["Evaluation Reports"]
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    F --> I
+    I -->|Recall@K / MRR| J
 ```
 
 ### Project Structure
