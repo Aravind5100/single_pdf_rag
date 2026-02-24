@@ -17,7 +17,10 @@ from index_strategy import build_faiss_index
 from generation_strategy import answer_question
 import streamlit as st
 
-PDF_PATH = os.environ.get("PDF_PATH", "/Users/aravindkompalli/Downloads/IT_ENDS_WITH_US.pdf")
+PDF_PATH = os.environ.get("PDF_PATH")
+if not PDF_PATH:
+    st.error("PDF_PATH environment variable not set. Please set it before running the app.")
+    st.stop()
 CHUNK_SIZE = 900
 OVERLAP = 350
 
