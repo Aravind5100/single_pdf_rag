@@ -17,9 +17,11 @@ Metrics per version
   * Over-refusal: share of answerable questions whose answer is the fixed refusal sentence.
   * Mean and median latency per question, in seconds, for the whole pipeline call.
   * Key-fact recall: for answerable questions whose dataset row has `key_facts`, the share of those
-    facts found in the answer (case-insensitive substring match; "a|b" means either is accepted).
+    facts found in the answer (case-insensitive whole-word match, page citations ignored; "a|b" means
+    either is accepted).
     This is a cheap objective check for facts the answer must contain. It cannot catch a wrong claim
     that sits next to the right facts, so it is not a full correctness judgment (see eval/COMPARISON.md).
+    Existing results can be re-scored from their saved answers with --rescore (no models are run).
 """
 import argparse
 import hashlib
@@ -122,20 +124,37 @@ def parse_trace(trace: Optional[List[str]]) -> Optional[Dict[str, Any]]:
     return info
 
 
+_CITATION = re.compile(r"[\[(]\s*pages?\s*\d+(?:\s*[,&-]\s*\d+)*\s*[\])]|\bpages?\s+\d+\b", re.I)
+
+
+def strip_citations(text: str) -> str:
+    """Remove page citations such as '[Page 29]' or 'Page 17' so their digits cannot satisfy a fact."""
+    return _CITATION.sub(" ", text)
+
+
 def normalize_text(text: str) -> str:
-    """Lowercase, straighten apostrophes, drop commas, collapse whitespace."""
-    return " ".join(text.lower().replace("\u2019", "'").replace(",", " ").split())
+    """Lowercase, straighten apostrophes, remove thousands commas ('1,500' -> '1500'), and turn
+    other commas, brackets and hyphens into spaces ('844-459-7405' -> '844 459 7405')."""
+    text = text.lower().replace("\u2019", "'")
+    text = re.sub(r"(?<=\d),(?=\d)", "", text)
+    text = re.sub(r"[,()\[\]\-]", " ", text)
+    return " ".join(text.split())
 
 
 def fact_found(fact: str, answer_norm: str) -> bool:
-    """A fact is found if any of its '|'-separated alternatives is a substring of the normalized answer."""
-    return any(alt.strip() and normalize_text(alt) in answer_norm for alt in fact.split("|"))
+    """True if any '|'-separated alternative of `fact` appears in the normalized answer as a whole word
+    or phrase (so 'no' does not match 'not' or 'enough'). Write stems as explicit alternatives."""
+    for alt in fact.split("|"):
+        norm = normalize_text(alt)
+        if norm and re.search(r"(?<!\w)" + re.escape(norm) + r"(?!\w)", answer_norm):
+            return True
+    return False
 
 
 def score_key_facts(facts: Optional[List[str]], answer: str) -> Optional[List[bool]]:
     if not facts:
         return None
-    answer_norm = normalize_text(answer)
+    answer_norm = normalize_text(strip_citations(answer))
     return [fact_found(f, answer_norm) for f in facts]
 
 
@@ -218,23 +237,33 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
-def add_repeat_stats(summary: Dict[str, Any], runs: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
-    """Fold several repeats of the same version into its summary (latency over all repeats, answer stability).
+def _signature(r: Dict[str, Any]) -> tuple:
+    """What must match between repeats for a question's result to count as stable."""
+    graph = r.get("graph") or {}
+    return (r["answer"], tuple(r.get("retrieved_chunk_ids") or ()), r.get("refused"), tuple(graph.get("grades") or ()))
 
-    `summary` was computed from the first repeat. With a single repeat it is returned unchanged.
+
+def add_repeat_stats(summary: Dict[str, Any], runs: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Fold several repeats of the same version into its summary.
+
+    `summary` was computed from the first repeat (all non-latency metrics), so metrics are only
+    trustworthy if repeats agree; `results_stable_across_repeats` counts the questions whose answer,
+    retrieved chunks, refusal flag and graph grades were identical in every repeat. Latency fields are
+    recomputed over all repeats. With a single repeat the summary is returned unchanged.
     """
     if len(runs) < 2:
         return summary
     all_lat = [r["latency_s"] for run in runs for r in run]
     summary["latency_mean_s"] = _mean(all_lat)
     summary["latency_median_s"] = statistics.median(all_lat)
+    summary["latency_total_s"] = sum(all_lat)                  # all repeats, to match the mean and median
     summary["repeats"] = len(runs)
     summary["latency_mean_per_repeat_s"] = [_mean([r["latency_s"] for r in run]) for run in runs]
     by_id: Dict[str, set] = {}
     for run in runs:
         for r in run:
-            by_id.setdefault(r["id"], set()).add(r["answer"])
-    summary["answers_stable_across_repeats"] = sum(len(v) == 1 for v in by_id.values())
+            by_id.setdefault(r["id"], set()).add(_signature(r))
+    summary["results_stable_across_repeats"] = sum(len(v) == 1 for v in by_id.values())
     summary["n_questions"] = len(by_id)
     return summary
 
@@ -278,8 +307,8 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
     text += row("Mean latency per question (s)", latency_cell)
     text += row("Median latency per question (s)", lambda s: _num(s["latency_median_s"], 1))
     if any_s.get("repeats"):
-        text += row("Questions with an identical answer in every repeat",
-                    lambda s: f"{s['answers_stable_across_repeats']}/{s['n_questions']}")
+        text += row("Questions with identical results in every repeat (answer, chunks, refusal, grades)",
+                    lambda s: f"{s['results_stable_across_repeats']}/{s['n_questions']}")
 
     if "graph" in summary and "graph" in summary["graph"]:
         g = summary["graph"]["graph"]
@@ -294,6 +323,43 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
             f"| Negative: generator already refused / verifier rejected / verifier passed | {g['negative_generator_refused']} / {g['negative_verifier_rejected']} / {g['negative_verifier_passed']} |\n"
         )
     return text
+
+
+# ---------------- rescore ----------------
+
+def rescore(prefix: str, dataset_path: Path) -> Dict[str, Any]:
+    """Recompute the key-fact fields and all summaries from the saved results of an earlier run.
+
+    No model is called: only the saved answers are re-scored against the dataset's current key_facts.
+    """
+    paths = out_paths(prefix)
+    rows = {r["id"]: r for r in load_jsonl(dataset_path)}
+    records = load_jsonl(paths["results"])
+    runs: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
+    for rec in records:
+        row = rows[rec["id"]]
+        negative = row["answer_type"] == "negative"
+        hits = None if negative else score_key_facts(row.get("key_facts"), rec["answer"])
+        rec["key_fact_hits"] = hits
+        rec["key_fact_recall"] = None if hits is None else sum(hits) / len(hits)
+        runs.setdefault(rec["version"], {}).setdefault(rec.get("repeat", 0), []).append(rec)
+
+    summary = {}
+    for version in [v for v in VERSIONS if v in runs]:
+        per_repeat = [runs[version][i] for i in sorted(runs[version])]
+        summary[version] = add_repeat_stats(summarize(per_repeat[0]), per_repeat)
+
+    meta = json.loads(paths["summary"].read_text(encoding="utf-8"))["meta"]
+    meta["key_facts_rescored_from_saved_answers"] = True
+    with paths["results"].open("w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    write_json(paths["summary"], {"meta": meta, "summary": summary})
+    tables = render_tables(summary)
+    paths["tables"].write_text(tables, encoding="utf-8")
+    print(tables)
+    print(f"Re-scored {paths['results']} (no models were run)")
+    return summary
 
 
 # ---------------- run ----------------
@@ -328,6 +394,7 @@ def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[
                 latency = time.perf_counter() - start
                 rec = score_record(version, row, result, latency)
                 rec["repeat"] = repeat
+                rec["dataset"] = str(dataset_path)
                 recs.append(rec)
                 with paths["results"].open("a", encoding="utf-8") as f:
                     f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -359,18 +426,36 @@ def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[
     return summary
 
 
+def positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, got {value}")
+    return value
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m eval.compare", description=__doc__.split("\n")[0])
     p.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     p.add_argument("--versions", nargs="+", choices=VERSIONS, default=VERSIONS)
-    p.add_argument("--limit", type=int, default=None, help="Only the first N questions (smoke test).")
-    p.add_argument("--k", type=int, default=None,
+    p.add_argument("--limit", type=positive_int, default=None, help="Only the first N questions (smoke test).")
+    p.add_argument("--k", type=positive_int, default=None,
                    help="Retrieve this many chunks for every question instead of the dataset's per-row k "
                         "(the Streamlit apps use 10).")
-    p.add_argument("--repeats", type=int, default=1, help="Run everything N times to see latency variation.")
+    p.add_argument("--repeats", type=positive_int, default=1, help="Run everything N times to see latency variation.")
+    p.add_argument("--rescore", action="store_true",
+                   help="Do not run any model: re-score the saved results of --out-prefix against the dataset's key_facts.")
     p.add_argument("--out-prefix", default=DEFAULT_PREFIX,
                    help="Output files are <prefix>_results.jsonl, _summary.json and _tables.md.")
     args = p.parse_args(argv)
+
+    if args.rescore:
+        rescore(args.out_prefix, args.dataset)
+        return 0
+
+    non_default = (args.k or args.limit or args.dataset != DEFAULT_DATASET or sorted(args.versions) != sorted(VERSIONS))
+    if non_default and args.out_prefix == DEFAULT_PREFIX:
+        sys.exit("This run differs from the default (--k, --limit, --dataset or --versions), so it would overwrite "
+                 f"the main results in {DEFAULT_PREFIX}_*. Pass --out-prefix to write it elsewhere.")
 
     pdf_path = os.environ.get("PDF_PATH")
     if not pdf_path:
