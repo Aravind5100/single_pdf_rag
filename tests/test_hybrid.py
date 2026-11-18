@@ -103,12 +103,21 @@ def test_keyword_quota_is_half_of_top_k_with_a_floor_of_two(stub_query):
     assert two[:2] == keyword_search_indices(chunks, "banana", top_k=2)
 
 
-def test_top_k_of_one_can_exceed_the_cap__current_behavior(stub_query):
-    # KNOWN QUIRK, documented and deliberately not fixed here: the keyword quota
-    # has a floor of 2 and the cap is only checked inside the vector loop, so
-    # top_k=1 can return more than one chunk. Changing this would change
-    # retrieval behavior, so any fix must be re-measured with the eval first.
+def test_top_k_of_one_returns_exactly_one_chunk_the_best_keyword_hit(stub_query):
+    # Regression test for a fixed quirk: the keyword quota has a floor of 2, so
+    # top_k=1 used to return more than one chunk. The result is now capped.
     chunks = make_chunks(["banana"] * 3 + ["x"] * 5)
     index, _ = build_faiss_index(chunks)
 
-    assert len(hybrid_retrieve_indices(index, chunks, "banana", top_k=1)) > 1
+    result = hybrid_retrieve_indices(index, chunks, "banana", top_k=1)
+
+    assert result == keyword_search_indices(chunks, "banana", top_k=1)
+    assert len(result) == 1
+
+
+@pytest.mark.parametrize("top_k", range(1, 11))
+def test_result_never_exceeds_top_k_for_any_top_k(stub_query, top_k):
+    chunks = make_chunks(["banana"] * 6 + ["x"] * 10)
+    index, _ = build_faiss_index(chunks)
+
+    assert len(hybrid_retrieve_indices(index, chunks, "banana", top_k=top_k)) <= top_k

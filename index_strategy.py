@@ -58,7 +58,6 @@ def keyword_search_indices(embedded_chunks, query: str, top_k: int = 5):
 def hybrid_retrieve_indices(index, embedded_chunks, query: str, top_k: int = 5):
 
     k_keyword = max(2, top_k // 2)
-    k_vector = top_k - k_keyword
 
     k_idx = keyword_search_indices(embedded_chunks, query, top_k=k_keyword)
 
@@ -81,5 +80,7 @@ def hybrid_retrieve_indices(index, embedded_chunks, query: str, top_k: int = 5):
         if len(merged) >= top_k:
             break
 
-    return merged
+    # For top_k >= 2 the keyword quota never exceeds the cap, so this is a no-op.
+    # It only matters for top_k=1, where the quota floor of 2 would overshoot.
+    return merged[:top_k]
 
