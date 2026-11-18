@@ -70,16 +70,29 @@ flowchart TD
 ├── main.py                  # Streamlit app entry point
 │
 ├── eval/
-│   ├── eval_runner.py       # Retrieval eval (Recall@K, MRR)
-│   ├── eval_dataset.jsonl   # Ground-truth evaluation set
+│   ├── eval_runner.py       # Retrieval eval (Recall@K, MRR), hand-written pipeline
+│   ├── compare.py           # Three-way comparison (retrieval, refusal, latency)
+│   ├── COMPARISON.md        # Results and honest analysis of that comparison
+│   ├── eval_dataset.jsonl   # Ground-truth evaluation set (10 questions)
+│   ├── eval_dataset_extended.jsonl  # 26 questions: 16 answerable, 10 negative
 │   ├── eval_results.jsonl   # Per-question results (latest run)
 │   ├── eval_summary.json    # Aggregate metrics (latest run)
 │   ├── baseline_results.jsonl  # Recorded baseline, per question
 │   └── baseline_summary.json   # Recorded baseline, aggregate
 │
+├── lc_rag/                  # LangChain and LangGraph versions (see "Two versions" below)
+│   ├── ingest.py            # PyMuPDFLoader, splitter, FAISS store, cache
+│   ├── retriever.py         # BM25 + FAISS EnsembleRetriever
+│   ├── chain.py             # LangChain pipeline (LCRag)
+│   ├── graph.py             # LangGraph pipeline (GraphRag)
+│   ├── cli.py               # python -m lc_rag.cli
+│   └── app_lc.py            # separate Streamlit page
+│
 ├── tests/                   # pytest suite (mocked, no Ollama needed)
 ├── cache/                   # Persistent embeddings + FAISS (git-ignored)
+├── LEARNING_NOTES.md        # State, nodes and conditional edges in plain language
 ├── requirements.txt
+├── requirements-lc.txt      # adds LangChain, LangGraph, BM25 (pinned)
 └── requirements-dev.txt     # adds pytest
 ```
 
@@ -99,9 +112,9 @@ Ground truth is defined manually in `eval/eval_dataset.jsonl` using:
 - Known correct page numbers
 - Negative (refusal) cases
 
-The eval measures retrieval only. It does not call the generation model, and negative
-cases are excluded from the Recall@K and MRR averages. Refusal correctness is not
-scored yet.
+`eval/eval_runner.py` measures retrieval only. It does not call the generation model, and negative
+cases are excluded from the Recall@K and MRR averages. Refusal correctness and latency are scored
+by `eval/compare.py` (see "Two versions" below).
 
 This ensures evaluation is objective, reproducible, and actionable for debugging.
 
@@ -194,6 +207,58 @@ Outputs:
 The eval uses the same cache as the app, so repeat runs do not re-embed.
 `eval/baseline_results.jsonl` and `eval/baseline_summary.json` hold the recorded baseline to compare against.
 
+## 🔀 Two versions: hand-written vs framework
+
+The repository holds two implementations of the same pipeline so they can be compared.
+
+| | Hand-written (baseline) | Framework (`lc_rag/`) |
+|---|---|---|
+| Where | the modules in the repo root | `lc_rag/` |
+| Retrieval | keyword-first merge of substring-count hits and FAISS hits | BM25 + FAISS fused by LangChain's `EnsembleRetriever` |
+| Orchestration | retrieve, then generate | LangChain chain, or a LangGraph state machine with context grading, query rewriting and answer verification |
+| UI | `streamlit run main.py` | `streamlit run lc_rag/app_lc.py` |
+| CLI | none (eval only) | `python -m lc_rag.cli` |
+
+The hand-written modules are unchanged and remain the baseline.
+
+### Run the framework versions
+
+```bash
+pip install -r requirements-lc.txt
+export PDF_PATH=/path/to/your/document.pdf
+
+# LangChain chain
+python -m lc_rag.cli "Are pets allowed in the residence halls?"
+
+# LangGraph (prints the path the question took through the graph)
+python -m lc_rag.cli --mode graph "Are pets allowed in the residence halls?"
+
+# Streamlit page with a switch between the two
+streamlit run lc_rag/app_lc.py
+```
+
+`LEARNING_NOTES.md` explains State, nodes and conditional edges using this graph.
+
+### Comparison results
+
+Run with `PDF_PATH=... python -m eval.compare` on 26 questions (16 answerable, 10 negative) from
+`eval/eval_dataset_extended.jsonl`, using `llama3.1:8b` through Ollama. One run, one document.
+
+| Metric | Hand-written | LangChain | LangGraph |
+|---|---|---|---|
+| Recall@K (n=16 answerable) | 1.000 | 1.000 | 1.000 |
+| MRR | 0.859 | 0.969 | 0.969 |
+| Refusal correctness on negatives (n=10) | 10/10 | 10/10 | 10/10 |
+| Over-refusal on answerables (n=16) | 0/16 | 0/16 | 0/16 |
+| Mean latency per question (s) | 8.6 | 9.4 | 23.3 |
+
+Short version: the framework versions ranked the right page higher on 3 of 16 questions (MRR 0.969 vs
+0.859). All three refused correctly every time, so the graph's grading and verification did not change
+any answer, and LangGraph cost about 2.5 times the latency of the plain chain. The samples are small,
+so none of these differences should be called significant. See [`eval/COMPARISON.md`](eval/COMPARISON.md)
+for the full analysis, the places the LangChain version cannot reproduce the baseline exactly, and the
+limits of the comparison.
+
 ## ✅ Run Tests
 
 ```bash
@@ -208,8 +273,9 @@ The tests mock all HTTP calls and do not need Ollama.
 ## 🔮 Future Work
 
 - Multi-PDF ingestion
-- Query rewriting and reranking
-- Automated refusal correctness scoring
+- Reranking (query rewriting exists in the LangGraph version; see `eval/COMPARISON.md` for what it did and did not help)
+- Adversarial negative questions and an automatic answer-correctness metric
+- Stop the graph's rewrite loop when a rewrite repeats the previous query
 - Dockerization
 - Extended evaluation dashboards
 
