@@ -4,6 +4,7 @@ Run from the repository root:
     PDF_PATH=/path/to/file.pdf python -m eval.compare
     PDF_PATH=... python -m eval.compare --versions baseline chain --limit 5
     PDF_PATH=... python -m eval.compare --repeats 2          # repeat the run to see latency variation
+    PDF_PATH=... python -m eval.compare --k 10 --versions baseline chain --out-prefix eval/compare_k10
     PDF_PATH=... python -m eval.compare --dataset eval/eval_dataset_adversarial.jsonl --out-prefix eval/compare_adversarial
 
 For every question each version runs its full pipeline (retrieve, and generate
@@ -298,10 +299,12 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
 # ---------------- run ----------------
 
 def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[int],
-        repeats: int = 1, prefix: str = DEFAULT_PREFIX) -> Dict[str, Any]:
+        repeats: int = 1, prefix: str = DEFAULT_PREFIX, k_override: Optional[int] = None) -> Dict[str, Any]:
     rows = load_jsonl(dataset_path)
     if limit:
         rows = rows[:limit]
+    if k_override:
+        rows = [{**r, "k": k_override} for r in rows]      # same k for every question
     runners = make_runners(pdf_path, versions)
     paths = out_paths(prefix)
 
@@ -340,6 +343,7 @@ def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[
         "dataset": str(dataset_path),
         "num_questions": len(rows),
         "repeats": repeats,
+        "k_override": k_override,
         "pdf_file": os.path.basename(pdf_path),
         "pdf_sha256": pdf_sha,
         "llm_model": LLM_MODEL,
@@ -360,6 +364,9 @@ def main(argv=None) -> int:
     p.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     p.add_argument("--versions", nargs="+", choices=VERSIONS, default=VERSIONS)
     p.add_argument("--limit", type=int, default=None, help="Only the first N questions (smoke test).")
+    p.add_argument("--k", type=int, default=None,
+                   help="Retrieve this many chunks for every question instead of the dataset's per-row k "
+                        "(the Streamlit apps use 10).")
     p.add_argument("--repeats", type=int, default=1, help="Run everything N times to see latency variation.")
     p.add_argument("--out-prefix", default=DEFAULT_PREFIX,
                    help="Output files are <prefix>_results.jsonl, _summary.json and _tables.md.")
@@ -376,7 +383,8 @@ def main(argv=None) -> int:
     except OllamaNotReady as exc:
         sys.exit(str(exc))
 
-    run(pdf_path, args.dataset, args.versions, args.limit, repeats=args.repeats, prefix=args.out_prefix)
+    run(pdf_path, args.dataset, args.versions, args.limit, repeats=args.repeats, prefix=args.out_prefix,
+        k_override=args.k)
     return 0
 
 
