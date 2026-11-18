@@ -103,9 +103,55 @@ def test_keyword_quota_is_half_of_top_k_with_a_floor_of_two(stub_query):
     assert two[:2] == keyword_search_indices(chunks, "banana", top_k=2)
 
 
+def legacy_hybrid(index, chunks, query, top_k):
+    """The merge exactly as it was before the cap was added (kept here to pin the 'no-op' claim)."""
+    k_keyword = max(2, top_k // 2)
+    k_idx = keyword_search_indices(chunks, query, top_k=k_keyword)
+    _, v_idx = index_strategy.search_index(index, index_strategy.embed_query(query), top_k=top_k)
+    merged, seen = [], set()
+    for idx in k_idx:
+        if idx != -1 and idx not in seen:
+            merged.append(idx)
+            seen.add(idx)
+    for idx in list(v_idx):
+        if idx != -1 and idx not in seen:
+            merged.append(idx)
+            seen.add(idx)
+        if len(merged) >= top_k:
+            break
+    return merged
+
+
+FIXTURES = [
+    (["banana"] * 6 + ["x"] * 10, "banana"),                                # keyword hits overlap the vector hits
+    (["x"] * 6 + ["banana"] * 3 + ["x"] * 7, "banana"),                     # keyword hits sit far from the vector hits
+    (["banana apple", "apple", "x", "banana"] + ["x"] * 12, "banana apple"),
+    (["x"] * 16, "what is the"),                                            # no keyword terms at all
+]
+
+
+@pytest.mark.parametrize("top_k", range(3, 11))
+@pytest.mark.parametrize("texts,query", FIXTURES)
+def test_cap_is_a_no_op_for_top_k_of_3_or_more(stub_query, texts, query, top_k):
+    chunks = make_chunks(texts)
+    index, _ = build_faiss_index(chunks)
+
+    assert hybrid_retrieve_indices(index, chunks, query, top_k=top_k) == legacy_hybrid(index, chunks, query, top_k)
+
+
+def test_top_k_of_two_used_to_overshoot_to_three_and_is_now_capped(stub_query):
+    # Keyword hits are chunks 6, 7 (far from the vector neighbours 0, 1, ...), so with top_k=2 the keyword
+    # loop already fills the result and the old vector loop appended one more before checking the cap.
+    chunks = make_chunks(["x"] * 6 + ["banana banana", "banana"] + ["x"] * 6)
+    index, _ = build_faiss_index(chunks)
+
+    assert len(legacy_hybrid(index, chunks, "banana", 2)) == 3
+    assert hybrid_retrieve_indices(index, chunks, "banana", top_k=2) == [6, 7]
+
+
 def test_top_k_of_one_returns_exactly_one_chunk_the_best_keyword_hit(stub_query):
     # Regression test for a fixed quirk: the keyword quota has a floor of 2, so
-    # top_k=1 used to return more than one chunk. The result is now capped.
+    # top_k=1 (and top_k=2) used to return more than the cap. The result is now capped.
     chunks = make_chunks(["banana"] * 3 + ["x"] * 5)
     index, _ = build_faiss_index(chunks)
 

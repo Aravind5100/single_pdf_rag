@@ -80,7 +80,8 @@ def hybrid_retrieve_indices(index, embedded_chunks, query: str, top_k: int = 5):
         if len(merged) >= top_k:
             break
 
-    # For top_k >= 2 the keyword quota never exceeds the cap, so this is a no-op.
-    # It only matters for top_k=1, where the quota floor of 2 would overshoot.
+    # For top_k >= 3 the keyword quota (max(2, top_k // 2)) is below the cap, the vector loop stops at
+    # top_k, and this is a no-op. For top_k of 1 or 2 the quota floor of 2 could overshoot the cap, so the
+    # result is trimmed. (top_k <= 0 never gets here: FAISS rejects it in the search call above.)
     return merged[:top_k]
 
