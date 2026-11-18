@@ -3,6 +3,8 @@
 Run from the repository root:
     PDF_PATH=/path/to/file.pdf python -m eval.compare
     PDF_PATH=... python -m eval.compare --versions baseline chain --limit 5
+    PDF_PATH=... python -m eval.compare --repeats 2          # repeat the run to see latency variation
+    PDF_PATH=... python -m eval.compare --dataset eval/eval_dataset_adversarial.jsonl --out-prefix eval/compare_adversarial
 
 For every question each version runs its full pipeline (retrieve, and generate
 or refuse). The retrieved chunks of that same run are scored, so the retrieval
@@ -13,7 +15,10 @@ Metrics per version
   * Refusal correctness: share of negative questions whose answer is the fixed refusal sentence.
   * Over-refusal: share of answerable questions whose answer is the fixed refusal sentence.
   * Mean and median latency per question, in seconds, for the whole pipeline call.
-Answer correctness is NOT scored automatically (see eval/COMPARISON.md).
+  * Key-fact recall: for answerable questions whose dataset row has `key_facts`, the share of those
+    facts found in the answer (case-insensitive substring match; "a|b" means either is accepted).
+    This is a cheap objective check for facts the answer must contain. It cannot catch a wrong claim
+    that sits next to the right facts, so it is not a full correctness judgment (see eval/COMPARISON.md).
 """
 import argparse
 import hashlib
@@ -39,9 +44,14 @@ from lc_rag.prompts import is_refusal
 from ollama_check import OllamaNotReady, check_ollama
 
 DEFAULT_DATASET = Path("eval/eval_dataset_extended.jsonl")
-OUT_RESULTS = Path("eval/compare_results.jsonl")
-OUT_SUMMARY = Path("eval/compare_summary.json")
-OUT_TABLES = Path("eval/compare_tables.md")
+DEFAULT_PREFIX = "eval/compare"
+
+
+def out_paths(prefix: str) -> Dict[str, Path]:
+    return {"results": Path(f"{prefix}_results.jsonl"), "summary": Path(f"{prefix}_summary.json"),
+            "tables": Path(f"{prefix}_tables.md")}
+
+
 VERSIONS = ["baseline", "chain", "graph"]
 LABELS = {"baseline": "Hand-written", "chain": "LangChain", "graph": "LangGraph"}
 
@@ -111,10 +121,28 @@ def parse_trace(trace: Optional[List[str]]) -> Optional[Dict[str, Any]]:
     return info
 
 
+def normalize_text(text: str) -> str:
+    """Lowercase, straighten apostrophes, drop commas, collapse whitespace."""
+    return " ".join(text.lower().replace("\u2019", "'").replace(",", " ").split())
+
+
+def fact_found(fact: str, answer_norm: str) -> bool:
+    """A fact is found if any of its '|'-separated alternatives is a substring of the normalized answer."""
+    return any(alt.strip() and normalize_text(alt) in answer_norm for alt in fact.split("|"))
+
+
+def score_key_facts(facts: Optional[List[str]], answer: str) -> Optional[List[bool]]:
+    if not facts:
+        return None
+    answer_norm = normalize_text(answer)
+    return [fact_found(f, answer_norm) for f in facts]
+
+
 def score_record(version: str, row: Dict[str, Any], result: Dict[str, Any], latency: float) -> Dict[str, Any]:
     negative = row["answer_type"] == "negative"
     pages = ordered_pages(result["retrieved_chunks"])
     gt = row["ground_truth_pages"]
+    fact_hits = None if negative else score_key_facts(row.get("key_facts"), result["answer"])
     return {
         "version": version,
         "id": row["id"],
@@ -128,6 +156,8 @@ def score_record(version: str, row: Dict[str, Any], result: Dict[str, Any], late
         "retrieved_chunk_ids": [c["chunk_id"] for c in result["retrieved_chunks"]],
         "recall_at_k": None if negative else recall_at_k(pages, gt),
         "mrr": None if negative else reciprocal_rank(pages, gt),
+        "key_fact_hits": fact_hits,
+        "key_fact_recall": None if fact_hits is None else sum(fact_hits) / len(fact_hits),
         "latency_s": round(latency, 3),
         "graph": parse_trace(result.get("trace")) if version == "graph" else None,
         "trace": result.get("trace"),
@@ -156,6 +186,10 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "latency_median_s": statistics.median(lat) if lat else None,
         "latency_total_s": sum(lat),
     }
+    with_facts = [r for r in ans if r.get("key_fact_recall") is not None]
+    out["n_with_key_facts"] = len(with_facts)
+    out["key_fact_recall"] = _mean([r["key_fact_recall"] for r in with_facts])
+    out["answers_with_all_key_facts"] = sum(r["key_fact_recall"] == 1.0 for r in with_facts)
 
     graph = [r["graph"] for r in records if r.get("graph")]
     if graph:
@@ -183,6 +217,27 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
+def add_repeat_stats(summary: Dict[str, Any], runs: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    """Fold several repeats of the same version into its summary (latency over all repeats, answer stability).
+
+    `summary` was computed from the first repeat. With a single repeat it is returned unchanged.
+    """
+    if len(runs) < 2:
+        return summary
+    all_lat = [r["latency_s"] for run in runs for r in run]
+    summary["latency_mean_s"] = _mean(all_lat)
+    summary["latency_median_s"] = statistics.median(all_lat)
+    summary["repeats"] = len(runs)
+    summary["latency_mean_per_repeat_s"] = [_mean([r["latency_s"] for r in run]) for run in runs]
+    by_id: Dict[str, set] = {}
+    for run in runs:
+        for r in run:
+            by_id.setdefault(r["id"], set()).add(r["answer"])
+    summary["answers_stable_across_repeats"] = sum(len(v) == 1 for v in by_id.values())
+    summary["n_questions"] = len(by_id)
+    return summary
+
+
 # ---------------- markdown tables ----------------
 
 def _pct(x: Optional[float]) -> str:
@@ -208,8 +263,22 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
                 lambda s: f"{s['refused_negatives']}/{s['n_negative']} ({_pct(s['refusal_correctness'])})")
     text += row(f"Over-refusal on answerables (n={any_s['n_answerable']})",
                 lambda s: f"{s['refused_answerables']}/{s['n_answerable']} ({_pct(s['over_refusal'])})")
-    text += row("Mean latency per question (s)", lambda s: _num(s["latency_mean_s"], 1))
+    if any_s.get("n_with_key_facts"):
+        text += row(f"Key-fact recall, mean (n={any_s['n_with_key_facts']} answerable)", lambda s: _num(s["key_fact_recall"]))
+        text += row("Answers containing all key facts",
+                    lambda s: f"{s['answers_with_all_key_facts']}/{s['n_with_key_facts']}")
+
+    def latency_cell(s: Dict[str, Any]) -> str:
+        cell = _num(s["latency_mean_s"], 1)
+        if s.get("repeats"):
+            cell += " (runs: " + ", ".join(_num(x, 1) for x in s["latency_mean_per_repeat_s"]) + ")"
+        return cell
+
+    text += row("Mean latency per question (s)", latency_cell)
     text += row("Median latency per question (s)", lambda s: _num(s["latency_median_s"], 1))
+    if any_s.get("repeats"):
+        text += row("Questions with an identical answer in every repeat",
+                    lambda s: f"{s['answers_stable_across_repeats']}/{s['n_questions']}")
 
     if "graph" in summary and "graph" in summary["graph"]:
         g = summary["graph"]["graph"]
@@ -228,42 +297,49 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
 
 # ---------------- run ----------------
 
-def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[int]) -> Dict[str, Any]:
+def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[int],
+        repeats: int = 1, prefix: str = DEFAULT_PREFIX) -> Dict[str, Any]:
     rows = load_jsonl(dataset_path)
     if limit:
         rows = rows[:limit]
     runners = make_runners(pdf_path, versions)
+    paths = out_paths(prefix)
 
-    OUT_RESULTS.parent.mkdir(parents=True, exist_ok=True)
-    OUT_RESULTS.write_text("", encoding="utf-8")
-    all_records: Dict[str, List[Dict[str, Any]]] = {}
+    paths["results"].parent.mkdir(parents=True, exist_ok=True)
+    paths["results"].write_text("", encoding="utf-8")
+    runs_by_version: Dict[str, List[List[Dict[str, Any]]]] = {v: [] for v in versions}
 
-    for version in versions:
-        fn = runners[version]
-        print(f"\n=== {LABELS[version]}: warm-up (not timed) ===")
-        fn("What is this document about?", 6)          # loads models so the first question is not charged for it
+    for repeat in range(repeats):
+        tag = f" (repeat {repeat + 1}/{repeats})" if repeats > 1 else ""
+        for version in versions:
+            fn = runners[version]
+            print(f"\n=== {LABELS[version]}{tag}: warm-up (not timed) ===")
+            fn("What is this document about?", 6)      # loads models so the first question is not charged for it
 
-        print(f"=== {LABELS[version]}: {len(rows)} questions ===")
-        recs = []
-        for row in rows:
-            k = int(row.get("k", 6))
-            start = time.perf_counter()
-            result = fn(row["question"], k)
-            latency = time.perf_counter() - start
-            rec = score_record(version, row, result, latency)
-            recs.append(rec)
-            with OUT_RESULTS.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            print(f"{row['id']:>4} {latency:6.1f}s refused={rec['refused']!s:5} "
-                  f"recall={rec['recall_at_k']} pages={rec['retrieved_pages']}")
-        all_records[version] = recs
+            print(f"=== {LABELS[version]}{tag}: {len(rows)} questions ===")
+            recs = []
+            for row in rows:
+                k = int(row.get("k", 6))
+                start = time.perf_counter()
+                result = fn(row["question"], k)
+                latency = time.perf_counter() - start
+                rec = score_record(version, row, result, latency)
+                rec["repeat"] = repeat
+                recs.append(rec)
+                with paths["results"].open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                print(f"{row['id']:>4} {latency:6.1f}s refused={rec['refused']!s:5} "
+                      f"recall={rec['recall_at_k']} pages={rec['retrieved_pages']}")
+            runs_by_version[version].append(recs)
 
-    summary = {v: summarize(recs) for v, recs in all_records.items()}
+    # Metrics come from the first repeat (temperature 0 makes them repeatable); latency uses all repeats.
+    summary = {v: add_repeat_stats(summarize(runs[0]), runs) for v, runs in runs_by_version.items()}
     with open(pdf_path, "rb") as f:
         pdf_sha = hashlib.sha256(f.read()).hexdigest()
     meta = {
         "dataset": str(dataset_path),
         "num_questions": len(rows),
+        "repeats": repeats,
         "pdf_file": os.path.basename(pdf_path),
         "pdf_sha256": pdf_sha,
         "llm_model": LLM_MODEL,
@@ -271,11 +347,11 @@ def run(pdf_path: str, dataset_path: Path, versions: List[str], limit: Optional[
                              ["langchain-core", "langchain-classic", "langchain-community", "langchain-ollama",
                               "langchain-text-splitters", "langgraph", "rank-bm25", "faiss-cpu"]},
     }
-    write_json(OUT_SUMMARY, {"meta": meta, "summary": summary})
+    write_json(paths["summary"], {"meta": meta, "summary": summary})
     tables = render_tables(summary)
-    OUT_TABLES.write_text(tables, encoding="utf-8")
+    paths["tables"].write_text(tables, encoding="utf-8")
     print("\n" + tables)
-    print(f"Wrote {OUT_RESULTS}, {OUT_SUMMARY}, {OUT_TABLES}")
+    print(f"Wrote {paths['results']}, {paths['summary']}, {paths['tables']}")
     return summary
 
 
@@ -284,6 +360,9 @@ def main(argv=None) -> int:
     p.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     p.add_argument("--versions", nargs="+", choices=VERSIONS, default=VERSIONS)
     p.add_argument("--limit", type=int, default=None, help="Only the first N questions (smoke test).")
+    p.add_argument("--repeats", type=int, default=1, help="Run everything N times to see latency variation.")
+    p.add_argument("--out-prefix", default=DEFAULT_PREFIX,
+                   help="Output files are <prefix>_results.jsonl, _summary.json and _tables.md.")
     args = p.parse_args(argv)
 
     pdf_path = os.environ.get("PDF_PATH")
@@ -297,7 +376,7 @@ def main(argv=None) -> int:
     except OllamaNotReady as exc:
         sys.exit(str(exc))
 
-    run(pdf_path, args.dataset, args.versions, args.limit)
+    run(pdf_path, args.dataset, args.versions, args.limit, repeats=args.repeats, prefix=args.out_prefix)
     return 0
 
 

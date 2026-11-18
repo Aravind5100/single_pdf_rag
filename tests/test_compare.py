@@ -120,3 +120,97 @@ def test_render_tables_shows_counts_next_to_rates(graph_records):
     assert "Over-refusal on answerables (n=2) | 1/2 (50%)" in text
     assert "Mean latency per question (s) | 25.0" in text
     assert "LangGraph decisions" in text
+
+
+# ---- key facts, repeats, output paths ----
+
+from eval.compare import add_repeat_stats, fact_found, normalize_text, out_paths, score_key_facts
+
+
+def test_normalize_text_straightens_apostrophes_and_drops_commas():
+    assert normalize_text("  Don’t, STOP\n now ") == "don't stop now"
+
+
+def test_fact_found_accepts_any_alternative_case_insensitively():
+    answer = normalize_text("Quiet hours start at 10 P.M., sunday to thursday.")
+    assert fact_found("10:00 p.m.|10 p.m.", answer)
+    assert fact_found("SUNDAY", answer)
+    assert not fact_found("midnight|12:00 a.m.", answer)
+    assert not fact_found("", answer)                     # an empty alternative never matches
+
+
+def test_score_key_facts_none_without_facts_and_per_fact_otherwise():
+    assert score_key_facts(None, "anything") is None
+    assert score_key_facts([], "anything") is None
+    assert score_key_facts(["fish", "10 gallons", "service animal"], "Only fish in a tank of 10 gallons") == [True, True, False]
+
+
+def facts_row(qid, facts):
+    r = row(qid, "fact", [19])
+    r["key_facts"] = facts
+    return r
+
+
+def test_score_record_adds_key_fact_fields_for_answerables_only():
+    ok = score_record("chain", facts_row("Q1", ["fish", "10 gallons"]), result("Fish in a 10 gallons tank [Page 19]", [19]), 1.0)
+    assert ok["key_fact_hits"] == [True, True] and ok["key_fact_recall"] == 1.0
+
+    partial = score_record("chain", facts_row("Q2", ["fish", "10 gallons"]), result("Only fish", [19]), 1.0)
+    assert partial["key_fact_recall"] == 0.5
+
+    neg_row = row("N1", "negative", [])
+    neg_row["key_facts"] = ["ignored"]
+    neg = score_record("chain", neg_row, result(REFUSAL_MESSAGE, [4]), 1.0)
+    assert neg["key_fact_hits"] is None and neg["key_fact_recall"] is None
+
+
+def test_summarize_reports_key_fact_recall_and_fully_correct_count():
+    recs = [
+        score_record("chain", facts_row("A", ["alpha", "beta"]), result("alpha beta", [19]), 1.0),     # 2/2
+        score_record("chain", facts_row("B", ["alpha", "beta"]), result("alpha only", [19]), 1.0),     # 1/2
+        score_record("chain", row("C", "fact", [19]), result("no facts defined", [19]), 1.0),
+    ]
+    s = summarize(recs)
+
+    assert s["n_with_key_facts"] == 2
+    assert s["key_fact_recall"] == 0.75
+    assert s["answers_with_all_key_facts"] == 1
+
+
+def make_run(latencies, answers):
+    return [{"id": f"Q{i}", "latency_s": lat, "answer": ans} for i, (lat, ans) in enumerate(zip(latencies, answers))]
+
+
+def test_add_repeat_stats_uses_all_repeats_for_latency_and_checks_answer_stability():
+    run1 = make_run([10.0, 20.0], ["a", "b"])
+    run2 = make_run([14.0, 24.0], ["a", "CHANGED"])
+    out = add_repeat_stats({"latency_mean_s": 15.0}, [run1, run2])
+
+    assert out["repeats"] == 2
+    assert out["latency_mean_s"] == 17.0
+    assert out["latency_mean_per_repeat_s"] == [15.0, 19.0]
+    assert (out["answers_stable_across_repeats"], out["n_questions"]) == (1, 2)
+
+
+def test_add_repeat_stats_leaves_a_single_run_unchanged():
+    summary = {"latency_mean_s": 15.0}
+    assert add_repeat_stats(summary, [make_run([10.0], ["a"])]) == {"latency_mean_s": 15.0}
+
+
+def test_render_tables_shows_key_fact_and_repeat_rows():
+    recs = [score_record("chain", facts_row("A", ["alpha", "beta"]), result("alpha beta", [19]), 2.0)]
+    s = summarize(recs)
+    s = add_repeat_stats(s, [make_run([2.0], ["alpha beta"]), make_run([4.0], ["alpha beta"])])
+    text = render_tables({"chain": s})
+
+    assert "Key-fact recall, mean (n=1 answerable) | 1.000" in text
+    assert "Answers containing all key facts | 1/1" in text
+    assert "3.0 (runs: 2.0, 4.0)" in text
+    assert "identical answer in every repeat | 1/1" in text
+
+
+def test_out_paths_follow_the_prefix():
+    p = out_paths("eval/compare_adversarial")
+    assert str(p["results"]) == "eval/compare_adversarial_results.jsonl"
+    assert str(p["summary"]) == "eval/compare_adversarial_summary.json"
+    assert str(p["tables"]) == "eval/compare_adversarial_tables.md"
