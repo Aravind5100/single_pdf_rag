@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "dataset": "eval/eval_dataset_extended.jsonl",
+    "num_questions": 26,
+    "repeats": 1,
+    "k_override": 2,
+    "pdf_file": "NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+    "pdf_sha256": "476a0394c1ab04ba0035ca05dc05e30281c1ec459afbbe7c5c6dc45437eca325",
+    "llm_model": "llama3.1:8b",
+    "package_versions": {
+      "langchain-core": "1.8.3",
+      "langchain-classic": "1.0.8",
+      "langchain-community": "0.4.2",
+      "langchain-ollama": "1.1.0",
+      "langchain-text-splitters": "1.1.3",
+      "langgraph": "1.2.22",
+      "rank-bm25": "0.2.2",
+      "faiss-cpu": "1.13.2"
+    }
+  },
+  "summary": {
+    "chain": {
+      "n_answerable": 16,
+      "n_negative": 10,
+      "recall_at_k": 0.9375,
+      "mrr": 0.9375,
+      "refused_negatives": 10,
+      "refusal_correctness": 1.0,
+      "refused_answerables": 1,
+      "over_refusal": 0.0625,
+      "latency_mean_s": 4.9970384615384615,
+      "latency_median_s": 4.1995000000000005,
+      "latency_total_s": 129.923,
+      "n_with_key_facts": 16,
+      "key_fact_recall": 0.8333333333333334,
+      "answers_with_all_key_facts": 12
+    },
+    "graph": {
+      "n_answerable": 16,
+      "n_negative": 10,
+      "recall_at_k": 0.9375,
+      "mrr": 0.9375,
+      "refused_negatives": 10,
+      "refusal_correctness": 1.0,
+      "refused_answerables": 2,
+      "over_refusal": 0.125,
+      "latency_mean_s": 10.979538461538462,
+      "latency_median_s": 11.274000000000001,
+      "latency_total_s": 285.468,
+      "n_with_key_facts": 16,
+      "key_fact_recall": 0.7708333333333334,
+      "answers_with_all_key_facts": 11,
+      "graph": {
+        "mean_rewrites": 0.6153846153846154,
+        "questions_with_rewrite": 8,
+        "grader_first_answerable_yes": 16,
+        "grader_first_answerable_no": 0,
+        "grader_first_negative_yes": 2,
+        "grader_first_negative_no": 8,
+        "grader_first_answerable_with_hit_yes": 15,
+        "grader_first_answerable_with_hit_no": 0,
+        "answerable_generator_refused": 1,
+        "answerable_verifier_rejected": 1,
+        "negative_generator_refused": 10,
+        "negative_verifier_rejected": 0,
+        "negative_verifier_passed": 0,
+        "refused_by_generator": 11,
+        "refused_by_verifier": 1,
+        "refused_by_grounding_check": 0,
+        "stop_reasons": {
+          "relevant": 18,
+          "stalled": 8
+        },
+        "mean_node_seconds": {
+          "generate": 4.1,
+          "grade_context": 3.88,
+          "refuse": 0.0,
+          "retrieve": 0.02,
+          "rewrite_query": 0.41,
+          "verify": 2.56
+        }
+      }
+    }
+  }
+}

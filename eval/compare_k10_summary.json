@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "dataset": "eval/eval_dataset_extended.jsonl",
+    "num_questions": 26,
+    "repeats": 1,
+    "k_override": 10,
+    "pdf_file": "NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+    "pdf_sha256": "476a0394c1ab04ba0035ca05dc05e30281c1ec459afbbe7c5c6dc45437eca325",
+    "llm_model": "llama3.1:8b",
+    "package_versions": {
+      "langchain-core": "1.8.3",
+      "langchain-classic": "1.0.8",
+      "langchain-community": "0.4.2",
+      "langchain-ollama": "1.1.0",
+      "langchain-text-splitters": "1.1.3",
+      "langgraph": "1.2.22",
+      "rank-bm25": "0.2.2",
+      "faiss-cpu": "1.13.2"
+    },
+    "key_facts_rescored_from_saved_answers": true
+  },
+  "summary": {
+    "baseline": {
+      "n_answerable": 16,
+      "n_negative": 10,
+      "recall_at_k": 1.0,
+      "mrr": 0.8458333333333333,
+      "refused_negatives": 10,
+      "refusal_correctness": 1.0,
+      "refused_answerables": 0,
+      "over_refusal": 0.0,
+      "latency_mean_s": 16.64657692307692,
+      "latency_median_s": 14.9665,
+      "latency_total_s": 432.811,
+      "n_with_key_facts": 16,
+      "key_fact_recall": 0.8645833333333334,
+      "answers_with_all_key_facts": 12
+    },
+    "chain": {
+      "n_answerable": 16,
+      "n_negative": 10,
+      "recall_at_k": 1.0,
+      "mrr": 0.96875,
+      "refused_negatives": 10,
+      "refusal_correctness": 1.0,
+      "refused_answerables": 0,
+      "over_refusal": 0.0,
+      "latency_mean_s": 18.163576923076924,
+      "latency_median_s": 16.194499999999998,
+      "latency_total_s": 472.253,
+      "n_with_key_facts": 16,
+      "key_fact_recall": 0.9166666666666666,
+      "answers_with_all_key_facts": 14
+    }
+  }
+}

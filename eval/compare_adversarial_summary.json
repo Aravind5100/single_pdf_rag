@@ -1,0 +1,101 @@
+{
+  "meta": {
+    "dataset": "eval/eval_dataset_adversarial.jsonl",
+    "num_questions": 8,
+    "repeats": 1,
+    "k_override": null,
+    "pdf_file": "NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+    "pdf_sha256": "476a0394c1ab04ba0035ca05dc05e30281c1ec459afbbe7c5c6dc45437eca325",
+    "llm_model": "llama3.1:8b",
+    "package_versions": {
+      "langchain-core": "1.8.3",
+      "langchain-classic": "1.0.8",
+      "langchain-community": "0.4.2",
+      "langchain-ollama": "1.1.0",
+      "langchain-text-splitters": "1.1.3",
+      "langgraph": "1.2.22",
+      "rank-bm25": "0.2.2",
+      "faiss-cpu": "1.13.2"
+    }
+  },
+  "summary": {
+    "baseline": {
+      "n_answerable": 0,
+      "n_negative": 8,
+      "recall_at_k": null,
+      "mrr": null,
+      "refused_negatives": 7,
+      "refusal_correctness": 0.875,
+      "refused_answerables": 0,
+      "over_refusal": null,
+      "latency_mean_s": 9.458124999999999,
+      "latency_median_s": 9.308,
+      "latency_total_s": 75.66499999999999,
+      "n_with_key_facts": 0,
+      "key_fact_recall": null,
+      "answers_with_all_key_facts": 0
+    },
+    "chain": {
+      "n_answerable": 0,
+      "n_negative": 8,
+      "recall_at_k": null,
+      "mrr": null,
+      "refused_negatives": 7,
+      "refusal_correctness": 0.875,
+      "refused_answerables": 0,
+      "over_refusal": null,
+      "latency_mean_s": 9.75175,
+      "latency_median_s": 9.5335,
+      "latency_total_s": 78.014,
+      "n_with_key_facts": 0,
+      "key_fact_recall": null,
+      "answers_with_all_key_facts": 0
+    },
+    "graph": {
+      "n_answerable": 0,
+      "n_negative": 8,
+      "recall_at_k": null,
+      "mrr": null,
+      "refused_negatives": 8,
+      "refusal_correctness": 1.0,
+      "refused_answerables": 0,
+      "over_refusal": null,
+      "latency_mean_s": 18.201999999999998,
+      "latency_median_s": 16.393,
+      "latency_total_s": 145.61599999999999,
+      "n_with_key_facts": 0,
+      "key_fact_recall": null,
+      "answers_with_all_key_facts": 0,
+      "graph": {
+        "mean_rewrites": 0.625,
+        "questions_with_rewrite": 3,
+        "grader_first_answerable_yes": 0,
+        "grader_first_answerable_no": 0,
+        "grader_first_negative_yes": 5,
+        "grader_first_negative_no": 3,
+        "grader_first_answerable_with_hit_yes": 0,
+        "grader_first_answerable_with_hit_no": 0,
+        "answerable_generator_refused": 0,
+        "answerable_verifier_rejected": 0,
+        "negative_generator_refused": 7,
+        "negative_verifier_rejected": 1,
+        "negative_verifier_passed": 0,
+        "refused_by_generator": 7,
+        "refused_by_verifier": 1,
+        "refused_by_grounding_check": 0,
+        "stop_reasons": {
+          "relevant": 6,
+          "stalled": 2
+        },
+        "mean_node_seconds": {
+          "generate": 4.23,
+          "grade_context": 12.25,
+          "refuse": 0.0,
+          "retrieve": 0.02,
+          "rewrite_query": 0.45,
+          "verify": 1.24
+        }
+      }
+    }
+  }
+}
