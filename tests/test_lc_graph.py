@@ -2,7 +2,8 @@
 from langchain_core.documents import Document
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from lc_rag.graph import GraphRag, clean_query, parse_yes_no, same_query
+from lc_rag.graph import (GraphRag, clean_query, node_seconds, parse_yes_no, recursion_limit_for,
+                          same_text, seen_before)
 from lc_rag.prompts import REFUSAL_MESSAGE
 
 
@@ -77,11 +78,37 @@ def test_repeated_rewrite_stops_the_loop_without_another_search_or_grade():
 
 
 def test_rewrite_identical_to_the_question_stops_at_the_first_rewrite():
-    rag, out = run(["no"], rag=FakeRag(rewrite="are pets allowed"))    # same as the question, ignoring case
+    rag, out = run(["no"], rag=FakeRag(rewrite="Are pets allowed?"))    # exactly the question
 
     assert rag.retrieve_queries == ["Are pets allowed?"]
     assert steps(out)[:4] == ["retrieve", "grade_context", "rewrite_query", "generate"]
-    assert out["retries"] == 1
+    assert out["retries"] == 1 and out["stop_reason"] == "stalled"
+
+
+def test_a_case_or_punctuation_change_is_a_new_query_and_is_searched():
+    # Different text can embed differently, so it is not treated as a repeat.
+    rag, out = run(["no"], rag=FakeRag(rewrite=["are pets allowed", "are pets allowed!"]))
+
+    assert rag.retrieve_queries == ["Are pets allowed?", "are pets allowed", "are pets allowed!"]
+    assert out["stop_reason"] == "retries_exhausted"
+
+
+def test_rewrite_that_cycles_back_to_the_original_question_stops_the_loop():
+    # A -> B -> A: the second rewrite repeats the ORIGINAL question, not the previous query.
+    rag, out = run(["no"], rag=FakeRag(rewrite=["first query", "Are pets allowed?"]))
+
+    assert rag.retrieve_queries == ["Are pets allowed?", "first query"]          # no third search
+    assert "repeats an earlier query, stopping retries" in out["trace"][5]
+    assert out["stop_reason"] == "stalled" and out["queries"] == ["Are pets allowed?", "first query", "Are pets allowed?"]
+
+
+def test_empty_rewrite_falls_back_to_the_question_and_is_caught_at_rewrite_two():
+    # clean_query falls back to the original question for a blank reply; at rewrite 2 that differs from the
+    # previous query but repeats the first one, which the old previous-query-only check missed.
+    rag, out = run(["no"], rag=FakeRag(rewrite=["first query", "   "]))
+
+    assert rag.retrieve_queries == ["Are pets allowed?", "first query"]
+    assert out["stop_reason"] == "stalled"
 
 
 def test_max_retries_zero_never_rewrites():
@@ -132,9 +159,14 @@ def test_parse_yes_no_is_strict():
     assert not parse_yes_no("") and not parse_yes_no("maybe") and not parse_yes_no("I think yes")
 
 
-def test_same_query_ignores_case_punctuation_and_spacing():
-    assert same_query("Capital of France", "capital  of france!")
-    assert not same_query("capital of France", "capital of Germany")
+def test_same_text_collapses_whitespace_but_not_case_or_punctuation():
+    assert same_text("capital  of\nFrance", "capital of France")
+    assert not same_text("Capital of France", "capital of France")
+    assert not same_text("capital of France", "capital of France!")
+
+
+def test_seen_before_checks_every_prior_query():
+    assert seen_before("b", ["a", "b", "c"]) and not seen_before("d", ["a", "b", "c"])
 
 
 def test_clean_query_strips_noise_and_falls_back():
@@ -142,3 +174,56 @@ def test_clean_query_strips_noise_and_falls_back():
     assert clean_query("Query: pet policy", "orig") == "pet policy"
     assert clean_query("   \n  ", "orig") == "orig"
     assert clean_query("x" * 300, "orig") == "orig"
+
+
+# ---- state fields, timings, step limit ----
+
+def test_happy_path_state_fields():
+    _, out = run(["yes", "yes"])
+    assert out["stop_reason"] == "relevant" and out["refusal_source"] == "" and out["queries"] == ["Are pets allowed?"]
+
+
+def test_retries_exhausted_stop_reason_and_verifier_refusal_source():
+    _, out = run(["no"], rag=FakeRag(rewrite=["first query", "second query"]))   # grader and verifier always "no"
+    assert out["stop_reason"] == "retries_exhausted"
+    assert out["refusal_source"] == "verifier"          # the generator answered; the verifier overrode it
+
+
+def test_generator_refusal_is_attributed_to_the_generator():
+    rag = FakeRag(answer=REFUSAL_MESSAGE)
+    _, out = run(["yes"], rag=rag)
+    assert out["refusal_source"] == "generator" and out["refused"]
+
+
+def test_node_seconds_sums_repeated_nodes():
+    assert node_seconds(["retrieve=0.100", "grade_context=0.250", "retrieve=0.200"]) == {
+        "retrieve": 0.3, "grade_context": 0.25}
+
+
+def test_every_executed_node_is_timed():
+    _, out = run(["no", "yes", "yes"])      # retrieve, grade, rewrite, retrieve, grade, generate, verify
+    assert set(out["node_seconds"]) == {"retrieve", "grade_context", "rewrite_query", "generate", "verify"}
+    assert all(v >= 0 for v in out["node_seconds"].values())
+
+
+def test_recursion_limit_always_exceeds_the_longest_path():
+    for max_retries in range(0, 30):
+        assert recursion_limit_for(max_retries) > 3 * max_retries + 5
+    assert recursion_limit_for(2) == 25                  # never below the default minimum
+
+
+def test_a_large_max_retries_still_finishes_without_hitting_the_step_limit():
+    rewrites = [f"distinct query {i}" for i in range(10)]
+    rag, out = run(["no"], rag=FakeRag(rewrite=rewrites), max_retries=10)
+
+    assert out["retries"] == 10 and len(rag.retrieve_queries) == 11
+    assert out["stop_reason"] == "retries_exhausted" and out["refused"]
+
+
+def test_exceeding_the_step_limit_returns_the_fixed_refusal_instead_of_raising():
+    rag = FakeRag()
+    judge = FakeListChatModel(responses=["yes"])
+    out = GraphRag(rag, judge_llm=judge, recursion_limit=3).answer("Are pets allowed?", k=6)
+
+    assert out["answer"] == REFUSAL_MESSAGE and out["refused"]
+    assert out["stop_reason"] == "step_limit" and "step limit 3 exceeded" in out["trace"][0]

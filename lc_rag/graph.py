@@ -4,23 +4,27 @@
     grade_context --relevant, or retries exhausted--> generate
     grade_context --not relevant and retries < MAX--> rewrite_query
     rewrite_query --new query--> retrieve
-    rewrite_query --same query as before--> generate   (another search would find nothing new)
+    rewrite_query --a query already searched--> generate   (another search would find nothing new)
     generate -> verify
     verify --supported--> END
     verify --not supported--> refuse -> END
 
 The grader and verifier are small temperature-0 yes/no calls to the local model.
 Every node appends a line to state["trace"] (and logs it), so the path a
-question took can be read back after the run.
+question took can be read back after the run. Nodes also record how long they
+took (state["timings"]), and the state records why the loop stopped
+(stop_reason) and who refused (refusal_source).
 """
 import logging
 import operator
 import re
+import time
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_ollama import ChatOllama
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 
 from generation_strategy import LLM_MODEL
@@ -30,20 +34,33 @@ from lc_rag.prompts import REFUSAL_MESSAGE, docs_to_context, is_refusal
 log = logging.getLogger("lc_rag.graph")
 
 MAX_RETRIES = 2          # at most 2 query rewrites, so at most 3 retrievals
-RECURSION_LIMIT = 25     # second guard: LangGraph aborts a run that exceeds this many steps
+RECURSION_LIMIT = 25     # minimum step limit; second guard: LangGraph aborts a run that exceeds this many steps
+
+
+def recursion_limit_for(max_retries: int) -> int:
+    """Step limit that always exceeds the longest possible path.
+
+    The longest path is retrieve, grade (then rewrite, retrieve, grade) once per retry, then generate,
+    verify, refuse: 3 * max_retries + 5 steps. One extra step of margin, and never below RECURSION_LIMIT.
+    """
+    return max(RECURSION_LIMIT, 3 * max_retries + 6)
 
 
 class RagState(TypedDict, total=False):
     question: str                       # the user's original question (never changed)
     k: int                              # chunks to retrieve
+    queries: Annotated[List[str], operator.add]  # every query searched, the question first
     rewritten_query: str                # latest rewritten search query ("" until a rewrite happens)
     chunks: List[Document]              # chunks from the latest retrieval
     relevant: bool                      # grader decision for the latest chunks
     answer: str
     retries: int                        # how many rewrites have happened so far
-    stalled: bool                       # the latest rewrite repeated the previous query
+    stalled: bool                       # the latest rewrite repeated a query that was already searched
+    stop_reason: str                    # why the loop stopped: relevant | retries_exhausted | stalled
     supported: bool                     # verifier decision for the answer
+    refusal_source: str                 # who refused: generator | verifier | "" (no refusal)
     trace: Annotated[List[str], operator.add]   # each node appends; operator.add concatenates
+    timings: Annotated[List[str], operator.add]  # "node=seconds" for every node execution
 
 
 GRADE_PROMPT = """You are checking retrieved context for a question answering system.
@@ -81,10 +98,15 @@ def parse_yes_no(text: str) -> bool:
     return bool(words) and words[0] == "yes"
 
 
-def same_query(a: str, b: str) -> bool:
-    """True if two queries are the same ignoring case, punctuation and spacing."""
-    norm = lambda s: re.sub(r"\W+", " ", s.lower()).strip()
-    return norm(a) == norm(b)
+def same_text(a: str, b: str) -> bool:
+    """Exact match after collapsing whitespace. Case and punctuation differences count as different
+    queries, because they can change what the embedding search returns."""
+    return " ".join(a.split()) == " ".join(b.split())
+
+
+def seen_before(query: str, queries: List[str]) -> bool:
+    """True if `query` is identical to any query already searched (including the original question)."""
+    return any(same_text(query, q) for q in queries)
 
 
 def clean_query(text: str, fallback: str) -> str:
@@ -113,10 +135,19 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
         log.info(msg)
         return {"trace": [msg]}
 
+    def timed(name: str, fn):
+        """Wrap a node so its wall-clock seconds are appended to state["timings"]."""
+        def wrapper(state: RagState) -> Dict[str, Any]:
+            start = time.perf_counter()
+            out = dict(fn(state))
+            out["timings"] = [f"{name}={time.perf_counter() - start:.3f}"]
+            return out
+        return wrapper
+
     # ---- nodes ----
 
     def retrieve(state: RagState) -> Dict[str, Any]:
-        query = state.get("rewritten_query") or state["question"]
+        query = state["queries"][-1]
         docs = rag.retrieve(query, state["k"])
         pages = sorted({d.metadata["page_number"] for d in docs})
         return {"chunks": docs, **note(f"retrieve: query={query!r} -> {len(docs)} chunks, pages {pages}")}
@@ -124,16 +155,23 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
     def grade_context(state: RagState) -> Dict[str, Any]:
         relevant, raw = ask_yes_no(GRADE_PROMPT.format(
             question=state["question"], context=docs_to_context(state["chunks"])))
-        return {"relevant": relevant,
+        stop = "relevant" if relevant else ("retries_exhausted" if state["retries"] >= max_retries else "")
+        return {"relevant": relevant, "stop_reason": stop,
                 **note(f"grade_context: relevant={'yes' if relevant else 'no'} (raw={raw!r}, retries={state['retries']}/{max_retries})")}
 
     def rewrite_query(state: RagState) -> Dict[str, Any]:
-        previous = state.get("rewritten_query") or state["question"]
+        previous = state["queries"][-1]
         raw = rag.llm.invoke(REWRITE_PROMPT.format(question=state["question"], previous=previous)).content
         query = clean_query(raw, fallback=state["question"])
-        stalled = same_query(query, previous)
-        suffix = "; unchanged, stopping retries" if stalled else ""
-        return {"rewritten_query": query, "retries": state["retries"] + 1, "stalled": stalled,
+        stalled = seen_before(query, state["queries"])
+        if not stalled:
+            suffix = ""
+        elif same_text(query, previous):
+            suffix = "; unchanged, stopping retries"
+        else:
+            suffix = "; repeats an earlier query, stopping retries"
+        return {"rewritten_query": query, "queries": [query], "retries": state["retries"] + 1, "stalled": stalled,
+                "stop_reason": "stalled" if stalled else "",
                 **note(f"rewrite_query: {previous!r} -> {query!r} (retries now {state['retries'] + 1}){suffix}")}
 
     def generate(state: RagState) -> Dict[str, Any]:
@@ -144,10 +182,12 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
         if is_refusal(state["answer"]):
             # A refusal makes no claims to check. Route it to the refuse node so the
             # final text is the fixed refusal string.
-            return {"supported": False, **note("verify: generator already refused, skipping the check")}
+            return {"supported": False, "refusal_source": "generator",
+                    **note("verify: generator already refused, skipping the check")}
         supported, raw = ask_yes_no(VERIFY_PROMPT.format(
             question=state["question"], context=docs_to_context(state["chunks"]), answer=state["answer"]))
-        return {"supported": supported, **note(f"verify: supported={'yes' if supported else 'no'} (raw={raw!r})")}
+        return {"supported": supported, "refusal_source": "" if supported else "verifier",
+                **note(f"verify: supported={'yes' if supported else 'no'} (raw={raw!r})")}
 
     def refuse(state: RagState) -> Dict[str, Any]:
         return {"answer": REFUSAL_MESSAGE, **note("refuse: returning the fixed refusal string")}
@@ -160,7 +200,7 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
         return "rewrite_query"
 
     def route_after_rewrite(state: RagState) -> str:
-        # A rewrite that repeats the previous query cannot retrieve anything new, so
+        # A rewrite identical to a query already searched cannot retrieve anything new, so
         # skip the repeat retrieval and grading call and answer with what we have.
         return "generate" if state["stalled"] else "retrieve"
 
@@ -168,12 +208,9 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
         return END if state["supported"] else "refuse"
 
     graph = StateGraph(RagState)
-    graph.add_node("retrieve", retrieve)
-    graph.add_node("grade_context", grade_context)
-    graph.add_node("rewrite_query", rewrite_query)
-    graph.add_node("generate", generate)
-    graph.add_node("verify", verify)
-    graph.add_node("refuse", refuse)
+    for name, fn in [("retrieve", retrieve), ("grade_context", grade_context), ("rewrite_query", rewrite_query),
+                     ("generate", generate), ("verify", verify), ("refuse", refuse)]:
+        graph.add_node(name, timed(name, fn))
 
     graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "grade_context")
@@ -187,18 +224,40 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
     return graph.compile()
 
 
-class GraphRag:
-    """Runs the compiled graph and returns the same result shape as LCRag.answer."""
+def node_seconds(timings: List[str]) -> Dict[str, float]:
+    """Total seconds per node from 'node=seconds' entries (a node that ran twice is summed)."""
+    out: Dict[str, float] = {}
+    for entry in timings:
+        name, _, secs = entry.partition("=")
+        out[name] = round(out.get(name, 0.0) + float(secs), 3)
+    return out
 
-    def __init__(self, rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retries: int = MAX_RETRIES):
+
+class GraphRag:
+    """Runs the compiled graph and returns the same result shape as LCRag.answer.
+
+    If a run ever exceeds the step limit it returns the fixed refusal instead of raising.
+    """
+
+    def __init__(self, rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retries: int = MAX_RETRIES,
+                 recursion_limit: Optional[int] = None):
         self.rag = rag
         self.graph = build_graph(rag, judge_llm=judge_llm, max_retries=max_retries)
+        self.recursion_limit = recursion_limit or recursion_limit_for(max_retries)
 
     def answer(self, question: str, k: int = 10) -> Dict[str, Any]:
-        final = self.graph.invoke(
-            {"question": question, "k": k, "rewritten_query": "", "retries": 0, "stalled": False, "trace": []},
-            config={"recursion_limit": RECURSION_LIMIT},
-        )
+        initial = {"question": question, "k": k, "queries": [question], "rewritten_query": "", "retries": 0,
+                   "stalled": False, "stop_reason": "", "refusal_source": "", "trace": [], "timings": []}
+        try:
+            final = self.graph.invoke(initial, config={"recursion_limit": self.recursion_limit})
+        except GraphRecursionError:
+            log.warning("graph exceeded its step limit (%s); returning the fixed refusal", self.recursion_limit)
+            return {
+                "question": question, "answer": REFUSAL_MESSAGE, "retrieved_chunks": [], "refused": True,
+                "trace": [f"graph: step limit {self.recursion_limit} exceeded, returning the fixed refusal string"],
+                "supported": False, "retries": None, "rewritten_query": "", "queries": [question],
+                "stop_reason": "step_limit", "refusal_source": "step_limit", "node_seconds": {},
+            }
         return {
             "question": question,
             "answer": final["answer"],
@@ -208,4 +267,8 @@ class GraphRag:
             "supported": final["supported"],
             "retries": final["retries"],
             "rewritten_query": final["rewritten_query"],
+            "queries": final["queries"],
+            "stop_reason": final.get("stop_reason", ""),
+            "refusal_source": final.get("refusal_source", ""),
+            "node_seconds": node_seconds(final.get("timings", [])),
         }

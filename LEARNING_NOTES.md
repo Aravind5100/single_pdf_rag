@@ -26,7 +26,11 @@ write to it. In code it is a typed dictionary, `RagState`:
 | `relevant` | The grader's yes/no for those chunks. |
 | `answer` | The answer text so far. |
 | `retries` | How many rewrites have happened. This is what stops endless loops. |
-| `stalled` | True when the latest rewrite repeated the previous query, so another search would find nothing new. |
+| `queries` | Every query searched so far, the question first. The stall check looks at all of them. |
+| `stalled` | True when the latest rewrite is identical to a query that was already searched, so another search would find nothing new. |
+| `stop_reason` | Why the retrieve/grade loop stopped: `relevant`, `retries_exhausted` or `stalled`. |
+| `refusal_source` | Who refused: `generator` (it wrote the refusal itself) or `verifier` (it overrode an answer), empty if nobody refused. |
+| `timings` | `node=seconds` for every node that ran, so you can see where the time goes. |
 | `supported` | The verifier's yes/no for the answer. |
 | `trace` | A running log of what each step decided, so you can read the path afterwards. |
 
@@ -44,7 +48,7 @@ Mine are:
 |---|---|
 | `retrieve` | Search the PDF (BM25 plus FAISS) using the rewritten query if there is one, else the question. |
 | `grade_context` | Ask the model "does this context help answer the question? yes or no". |
-| `rewrite_query` | Ask the model for a better search query, add 1 to `retries`, and note whether the new query is the same as the previous one (`stalled`). |
+| `rewrite_query` | Ask the model for a better search query, add 1 to `retries`, and note whether the new query is identical to one already searched (`stalled`). |
 | `generate` | Answer the original question from the chunks, using the grounded prompt. |
 | `verify` | Ask the model "is every claim in this answer supported by the context? yes or no". |
 | `refuse` | Replace the answer with the fixed refusal sentence. |
@@ -96,16 +100,21 @@ The loop is `retrieve -> grade_context -> rewrite_query -> retrieve`. Three thin
 
 1. **The retry counter.** `rewrite_query` adds 1 to `retries`, and `route_after_grade` refuses to
    loop again once `retries` reaches 2. So there are at most 3 retrievals per question.
-2. **The stall check.** If a rewrite produces the same query as the previous one, searching again
-   would return the same chunks, so `route_after_rewrite` skips straight to `generate`. (In my first
-   comparison run, all 7 questions that used both retries wasted the second one this way, which is why
-   the check exists.)
-3. **A recursion limit.** LangGraph is also told to abort any run that takes more than 25 steps.
-   This is a safety net in case the other two ever have a bug.
+2. **The stall check.** If a rewrite produces a query identical to any query already searched (the
+   previous rewrite, or the original question), searching again would return the same chunks, so
+   `route_after_rewrite` skips straight to `generate`. Matching is exact after collapsing whitespace: a
+   change in case or punctuation counts as a new query, because it can change what the embedding search
+   returns. (In my first comparison run, all 7 questions that used both retries wasted the second one this
+   way, which is why the check exists.)
+3. **A recursion limit.** LangGraph is also told to abort any run that takes too many steps. The limit
+   is `3 * max_retries + 6` (never below 25), always above the longest possible path of
+   `3 * max_retries + 5` steps. If a run ever did hit it, the graph returns the fixed refusal instead of
+   raising an error. This is a safety net in case the other two ever have a bug.
 
 ## A worked example from a real run
 
 Question: *Does the handbook describe rules or fines related to student parking violations?*
+(run with `--k 6`, so each retrieval returns 6 chunks)
 
 ```
 retrieve      -> 6 chunks
