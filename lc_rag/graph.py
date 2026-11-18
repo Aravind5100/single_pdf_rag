@@ -60,7 +60,7 @@ class RagState(TypedDict, total=False):
     stalled: bool                       # the latest rewrite repeated a query that was already searched
     stop_reason: str                    # why the loop stopped: relevant | retries_exhausted | stalled
     supported: bool                     # verifier decision for the answer
-    refusal_source: str                 # who refused: generator | grounding_check | verifier | "" (no refusal)
+    refusal_source: str                 # who refused: generator | grounding_check | verifier | step_limit | ""
     trace: Annotated[List[str], operator.add]   # each node appends; operator.add concatenates
     timings: Annotated[List[str], operator.add]  # "node=seconds" for every node execution
 
@@ -187,7 +187,10 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
             return {"supported": False, "refusal_source": "generator",
                     **note("verify: generator already refused, skipping the check")}
         context = docs_to_context(state["chunks"])
-        missing = ungrounded_numbers(state["answer"], context)
+        # Compare against the chunk text only: docs_to_context adds "[Page N]" labels, and a retrieved
+        # page's number must not count as grounding for an answer.
+        chunk_text = "\n".join(d.page_content for d in state["chunks"])
+        missing = ungrounded_numbers(state["answer"], chunk_text, question=state["question"])
         if missing:
             # A number in the answer that is nowhere in the context is invented. Reject without asking the model.
             return {"supported": False, "refusal_source": "grounding_check",

@@ -6,7 +6,7 @@ CONTEXT = ("[Page 29] Residents will be provided with lock-out assistance for up
 
 
 def test_numbers_in_handles_currency_decimals_commas_and_number_words():
-    assert numbers_in("a $25.00 fee") == ["25", "00"]
+    assert numbers_in("a $25.00 fee") == ["25"]                # trailing ".00" is the same amount
     assert numbers_in("1,500 ml") == ["1500"]
     assert numbers_in("limited to five visits and twelve beers") == ["5", "12"]
     assert numbers_in("one of the following") == []            # 'one' is not treated as a quantity
@@ -44,3 +44,47 @@ def test_a_page_citation_for_an_unrelated_page_is_not_a_claim():
 def test_it_cannot_catch_an_invented_fact_without_a_number():
     # Documented limitation: no digits, so nothing to compare.
     assert ungrounded_numbers("The final decision is made by a student panel vote.", CONTEXT) == []
+
+
+# ---- false-rejection classes found in review: each would wrongly refuse a correct answer ----
+
+def test_compound_number_words_become_one_number():
+    assert numbers_in("Twenty-four-hour quiet hours") == ["24"]
+    assert numbers_in("twenty one years and thirty five days") == ["21", "35"]
+    assert numbers_in("fifteen and sixty") == ["15", "60"]        # a tens word alone is a number too
+    assert numbers_in("sixty-five") == ["65"]
+
+
+def test_the_handbooks_own_spelling_of_24_hour_matches_a_digit_answer_and_back():
+    assert ungrounded_numbers("24-hour quiet hours apply", "Twenty-four-hour quiet hours begin on Friday") == []
+    assert ungrounded_numbers("Twenty-four-hour quiet hours apply", "24-hour quiet hours begin on Friday") == []
+    assert ungrounded_numbers("Twenty-one is the age", "You must be 21 or older") == []
+
+
+def test_a_number_echoed_from_the_question_counts_as_grounded():
+    assert ungrounded_numbers("No, residents under 18 are not covered.", "Residents must follow policy.",
+                              question="Can residents under 18 stay?") == []
+    assert ungrounded_numbers("A $50 fine applies.", "Residents must follow policy.",
+                              question="Can residents under 18 stay?") == ["50"]
+
+
+def test_leading_zeros_and_trailing_decimals_do_not_cause_false_flags():
+    assert ungrounded_numbers("Check-in is at 08:00.", "Check-in is at 8:00 a.m.") == []
+    assert ungrounded_numbers("The fee is $25.00.", "The fee is $25.") == []
+    assert ungrounded_numbers("The fee is $25.", "The fee is $25.00.") == []
+    assert ungrounded_numbers("The fee is $25.50.", "The fee is $25.") == ["50"]      # a different amount still flags
+
+
+def test_markdown_list_markers_and_inline_enumerators_are_formatting():
+    answer = "**1.** Submit the form.\n- 2. Wait.\n3) Appeal (1) in writing and (2) on time."
+    assert numbers_in(answer, answer_side=True) == []
+
+
+def test_page_citation_variants_are_ignored():
+    for citation in ("[Pages 18 and 25]", "[Page 19\u201320]", "p. 19", "pp. 18-19", "(page 7)"):
+        assert numbers_in(f"No fee applies. {citation}", answer_side=True) == [], citation
+
+
+def test_a_retrieved_page_label_number_is_not_grounding():
+    # Callers pass chunk text, not text with '[Page 19]' labels added, so '19' here is genuinely ungrounded.
+    assert ungrounded_numbers("A $19 fee applies.", "Residents must follow the policy.") == ["19"]

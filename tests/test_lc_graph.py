@@ -257,3 +257,17 @@ def test_a_number_that_is_in_the_context_passes_through_to_the_model_verifier():
     _, out = run(["yes", "yes"], rag=rag)                       # grade yes, verify yes
 
     assert out["refusal_source"] == "" and out["answer"] == "A $40 fee applies. [Page 19]"
+
+
+def test_a_page_label_number_does_not_ground_an_invented_number_in_the_graph():
+    rag = FakeRag(answer="A $19 fee applies.")          # the fake chunk is labeled page 19 but its text has no digits
+    out = GraphRag(rag, judge_llm=FakeListChatModel(responses=["yes"])).answer("Are pets allowed?", k=6)
+
+    assert out["refusal_source"] == "grounding_check" and out["answer"] == REFUSAL_MESSAGE
+
+
+def test_a_number_from_the_question_is_not_rejected_by_the_number_check():
+    rag = FakeRag(answer="Residents under 18 are covered. [Page 19]")
+    out = GraphRag(rag, judge_llm=FakeListChatModel(responses=["yes"])).answer("Are residents under 18 covered?", k=6)
+
+    assert out["refusal_source"] == "" and out["answer"].startswith("Residents under 18")
