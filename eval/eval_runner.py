@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Set
 from extract_pdf_text import extract_text_from_pdf
@@ -108,7 +111,6 @@ def run_eval(pdf_path: str) -> None:
     dataset = load_jsonl(EVAL_PATH)
 
     print("Building RAG artifacts once")
-    pdf_path = "/Users/aravindkompalli/Downloads/NEWHANDBOOK_AUG8_2025_Final_optimized.pdf"
     embedded_chunks, index = build_rag_artifacts(pdf_path)
 
     results = []
@@ -160,8 +162,14 @@ def run_eval(pdf_path: str) -> None:
     avg_recall = sum(valid_recall) / len(valid_recall) if valid_recall else None
     mrr = sum(valid_rr) / len(valid_rr) if valid_rr else None
 
+    # Record the file name and a content hash, not the absolute path, so the
+    # summary does not leak a machine-specific location.
+    with open(pdf_path, "rb") as f:
+        pdf_sha256 = hashlib.sha256(f.read()).hexdigest()
+
     summary = {
-        "pdf_path": pdf_path,
+        "pdf_file": os.path.basename(pdf_path),
+        "pdf_sha256": pdf_sha256,
         "num_cases": len(dataset),
         "num_scored_cases": len(valid_recall),
         "avg_recall_at_k": avg_recall,
@@ -178,7 +186,12 @@ def run_eval(pdf_path: str) -> None:
 
 
 if __name__ == "__main__":
-    # Put your handbook PDF path here:
-    # Example: "docs/NEWHANDBOOK_AUG8_2025_Final_optimized.pdf"
-    PDF_PATH = "docs/NEWHANDBOOK_AUG8_2025_Final_optimized.pdf"
+    # Same convention as main.py: the PDF location comes from the environment.
+    # Run from the repo root:  PDF_PATH=/path/to/file.pdf python -m eval.eval_runner
+    PDF_PATH = os.environ.get("PDF_PATH")
+    if not PDF_PATH:
+        sys.exit("PDF_PATH environment variable not set. Example:\n"
+                 "  PDF_PATH=/path/to/file.pdf python -m eval.eval_runner")
+    if not os.path.isfile(PDF_PATH):
+        sys.exit(f"PDF_PATH does not point to a file: {PDF_PATH}")
     run_eval(PDF_PATH)

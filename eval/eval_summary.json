@@ -1,5 +1,6 @@
 {
-  "pdf_path": "/Users/aravindkompalli/Downloads/NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+  "pdf_file": "NEWHANDBOOK_AUG8_2025_Final_optimized.pdf",
+  "pdf_sha256": "476a0394c1ab04ba0035ca05dc05e30281c1ec459afbbe7c5c6dc45437eca325",
   "num_cases": 10,
   "num_scored_cases": 9,
   "avg_recall_at_k": 1.0,
