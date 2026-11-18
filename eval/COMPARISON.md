@@ -164,8 +164,16 @@ The script checks the invented text is absent from the context.
   detail: it accepted 8 of 12. An earlier hand-written version of this test showed 10 of 12 rejected, which
   was inflated because those answers differed from the context in other ways too.
 - The **number check** (`lc_rag/grounding.py`, now part of the graph's verify step) rejects any answer
-  containing a number that appears nowhere in the retrieved context. It flagged 0 of the 12 controls, and in
-  all final graph runs it never rejected an answer (0 of 26 + 8 + 26 runs), so it caused no over-refusal.
+  containing a number that appears nowhere in the retrieved chunk text or the question. It flagged 0 of the
+  12 controls, and in all final graph runs it never rejected an answer (0 of 26 + 8 + 26 runs). Scanning all 110
+  saved real non-refusal chain and graph answers (four result sets, both repeats) also flags none, so on this
+  data it caused no over-refusal. A code review found ways it could falsely reject a correct answer, and those
+  were fixed: number words are converted including compounds ("twenty-four" is 24, which the handbook itself
+  writes), digit runs are compared as integers ("08" equals "8", "$25.00" equals "$25"), a number echoed from the
+  question counts as grounded, list markers and page citations are ignored, and the check reads chunk text only
+  so a "[Page 19]" label cannot ground an invented 19. Still not handled: ordinals written as words ("second
+  offense" against "2nd") and derived counts ("two exceptions"), which could cause a false rejection; none
+  occurred in the 110 answers.
   Combined with the LLM verifier, 9 of 12 fabrications are caught.
 - **Caveat:** most of my invented details are numbers, which is exactly what this check sees, so 9 of 12
   overstates how it would do on invented facts in general. The 3 misses are Q5 ("alcohol permit") and Q9
