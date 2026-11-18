@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Set
 from artifacts import load_or_build_artifacts
 from index_strategy import hybrid_retrieve_indices
+from ollama_check import check_ollama, OllamaNotReady
 from generation_strategy import generate_answer
 
 
@@ -189,4 +190,8 @@ if __name__ == "__main__":
                  "  PDF_PATH=/path/to/file.pdf python -m eval.eval_runner")
     if not os.path.isfile(PDF_PATH):
         sys.exit(f"PDF_PATH does not point to a file: {PDF_PATH}")
+    try:
+        check_ollama()
+    except OllamaNotReady as exc:
+        sys.exit(str(exc))
     run_eval(PDF_PATH)

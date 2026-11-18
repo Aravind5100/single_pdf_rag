@@ -2,11 +2,18 @@ import os
 
 from artifacts import load_or_build_artifacts
 from generation_strategy import answer_question
+from ollama_check import check_ollama, OllamaNotReady
 import streamlit as st
 
 PDF_PATH = os.environ.get("PDF_PATH")
 if not PDF_PATH:
     st.error("PDF_PATH environment variable not set. Please set it before running the app.")
+    st.stop()
+
+try:
+    check_ollama()
+except OllamaNotReady as exc:
+    st.error(str(exc))
     st.stop()
 
 embedded_chunks, index = load_or_build_artifacts(PDF_PATH, log=st.write)
