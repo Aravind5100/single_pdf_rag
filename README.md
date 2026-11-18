@@ -315,4 +315,4 @@ The tests mock all HTTP calls and do not need Ollama.
 
 ## 📜 License
 
-Intended license: MIT. A `LICENSE` file has not been added to the repository yet.
+MIT License. See [LICENSE](LICENSE).
