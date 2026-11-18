@@ -16,7 +16,8 @@
       "langgraph": "1.2.22",
       "rank-bm25": "0.2.2",
       "faiss-cpu": "1.13.2"
-    }
+    },
+    "key_facts_rescored_from_saved_answers": true
   },
   "summary": {
     "baseline": {
@@ -94,9 +95,12 @@
         "negative_generator_refused": 10,
         "negative_verifier_rejected": 0,
         "negative_verifier_passed": 0,
+        "answerable_grounding_rejected": 0,
+        "negative_grounding_rejected": 0,
         "refused_by_generator": 10,
         "refused_by_verifier": 0,
         "refused_by_grounding_check": 0,
+        "refused_by_step_limit": 0,
         "stop_reasons": {
           "relevant": 19,
           "stalled": 7

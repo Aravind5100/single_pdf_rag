@@ -18,7 +18,7 @@ LangGraph decisions
 | Grader, first decision, negative questions: yes / no | 5 / 3 |
 | Answerable: generator already refused / verifier rejected an answer | 0 / 0 |
 | Negative: generator already refused / verifier rejected / verifier passed | 7 / 1 / 0 |
-| Final refusals by source: generator / number check / LLM verifier | 7 / 0 / 1 |
+| Final refusals by source: generator / number check / LLM verifier / step limit | 7 / 0 / 1 / 0 |
 | Why the retrieve/grade loop stopped | relevant: 6, stalled: 2 |
 
 LangGraph: mean seconds per question spent in each node

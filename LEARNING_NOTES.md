@@ -29,7 +29,7 @@ write to it. In code it is a typed dictionary, `RagState`:
 | `queries` | Every query searched so far, the question first. The stall check looks at all of them. |
 | `stalled` | True when the latest rewrite is identical to a query that was already searched, so another search would find nothing new. |
 | `stop_reason` | Why the retrieve/grade loop stopped: `relevant`, `retries_exhausted` or `stalled`. |
-| `refusal_source` | Who refused: `generator` (it wrote the refusal itself) or `verifier` (it overrode an answer), empty if nobody refused. |
+| `refusal_source` | Who refused: `generator` (it wrote the refusal itself), `grounding_check` (a number in the answer was not in the context), `verifier` (the model overrode an answer) or `step_limit` (the safety net tripped); empty if nobody refused. |
 | `timings` | `node=seconds` for every node that ran, so you can see where the time goes. |
 | `supported` | The verifier's yes/no for the answer. |
 | `trace` | A running log of what each step decided, so you can read the path afterwards. |
@@ -142,7 +142,7 @@ improve the score.
 | Nodes | the inner functions `retrieve`, `grade_context`, `rewrite_query`, `generate`, `verify`, `refuse` inside `build_graph` |
 | Normal edges | `graph.add_edge(...)` |
 | Conditional edges | `graph.add_conditional_edges(...)` with `route_after_grade`, `route_after_rewrite` and `route_after_verify` |
-| Retry cap | `max_retries` (default `MAX_RETRIES = 2`) and `RECURSION_LIMIT` |
+| Retry cap | `max_retries` (default `MAX_RETRIES = 2`) and `recursion_limit_for(max_retries)` (`RECURSION_LIMIT` is only its minimum) |
 | Reading the path | `result["trace"]`, printed by `python -m lc_rag.cli --mode graph` and shown in the Streamlit page |
 
 ## Try it
