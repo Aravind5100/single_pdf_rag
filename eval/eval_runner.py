@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Tuple, Set
 from artifacts import load_or_build_artifacts
 from index_strategy import hybrid_retrieve_indices
 from ollama_check import check_ollama, OllamaNotReady
-from generation_strategy import generate_answer
 
 
 EVAL_PATH = Path("eval/eval_dataset.jsonl")

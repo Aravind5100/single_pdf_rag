@@ -34,7 +34,7 @@ from eval.eval_runner import (
     reciprocal_rank,
     write_json,
 )
-from generation_strategy import LLM_MODEL, answer_question, generate_answer
+from generation_strategy import LLM_MODEL, answer_question
 from lc_rag.prompts import is_refusal
 from ollama_check import OllamaNotReady, check_ollama
 
