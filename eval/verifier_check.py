@@ -52,8 +52,9 @@ def build_candidates(control: str, cases: List[Dict[str, Any]], context: str):
     """
     candidates = [{"kind": "control", "answer": control}]
     skipped = []
+    squash = lambda t: " ".join(t.lower().split())          # so a phrase split across a line break is still found
     for c in cases:
-        if c.get("invented") and c["invented"].lower() in context.lower():
+        if c.get("invented") and squash(c["invented"]) in squash(context):
             skipped.append({"id": c["id"], "kind": c["kind"],
                             "reason": f"invented text {c['invented']!r} appears in the retrieved context"})
             continue
@@ -86,8 +87,9 @@ def render(summary: Dict[str, Any]) -> str:
         s = summary[kind]
         text += (f"| {label} | {s['n']} | {s['rejected']} | {s['flagged_by_number_check']} | "
                  f"{s['rejected_by_either']} | {want} |\n")
-    text += (f"\nReplies that were not a clean 'yes' or 'no' (treated as 'no' by the strict parser): "
-             f"{summary['unclean_replies']}\n")
+    text += (f"\nReplies that were not exactly 'yes' or 'no': {summary['unclean_replies']}. (The strict parser still "
+             f"reads a reply that starts with 'yes' as yes and any other first word as no; this count audits how "
+             f"often the model did something else.)\n")
     return text
 
 

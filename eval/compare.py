@@ -43,6 +43,7 @@ from eval.eval_runner import (
     write_json,
 )
 from generation_strategy import LLM_MODEL, answer_question
+from lc_rag.grounding import strip_citations
 from lc_rag.prompts import is_refusal
 from ollama_check import OllamaNotReady, check_ollama
 
@@ -119,25 +120,21 @@ def parse_trace(trace: Optional[List[str]]) -> Optional[Dict[str, Any]]:
         elif line.startswith("verify:"):
             if "skipping the check" in line:
                 info["verify"] = "skipped"
+            elif "rejecting without the model check" in line:
+                info["verify"] = "grounding"          # the number check rejected it; the LLM verifier never ran
             else:
                 info["verify"] = "yes" if "supported=yes" in line else "no"
     return info
 
 
-_CITATION = re.compile(r"[\[(]\s*pages?\s*\d+(?:\s*[,&-]\s*\d+)*\s*[\])]|\bpages?\s+\d+\b", re.I)
-
-
-def strip_citations(text: str) -> str:
-    """Remove page citations such as '[Page 29]' or 'Page 17' so their digits cannot satisfy a fact."""
-    return _CITATION.sub(" ", text)
-
-
 def normalize_text(text: str) -> str:
-    """Lowercase, straighten apostrophes, remove thousands commas ('1,500' -> '1500'), and turn
-    other commas, brackets and hyphens into spaces ('844-459-7405' -> '844 459 7405')."""
+    """Lowercase, straighten apostrophes, write 'a.m.'/'p.m.' as 'am'/'pm', remove thousands commas
+    ('1,500' -> '1500'), and turn other commas, brackets and hyphens or dashes into spaces
+    ('844-459-7405' -> '844 459 7405')."""
     text = text.lower().replace("\u2019", "'")
+    text = re.sub(r"\b([ap])\.m\.?", r"\1m", text)
     text = re.sub(r"(?<=\d),(?=\d)", "", text)
-    text = re.sub(r"[,()\[\]\-]", " ", text)
+    text = re.sub(r"[,()\[\]\-\u2013\u2014]", " ", text)
     return " ".join(text.split())
 
 
@@ -146,7 +143,8 @@ def fact_found(fact: str, answer_norm: str) -> bool:
     or phrase (so 'no' does not match 'not' or 'enough'). Write stems as explicit alternatives."""
     for alt in fact.split("|"):
         norm = normalize_text(alt)
-        if norm and re.search(r"(?<!\w)" + re.escape(norm) + r"(?!\w)", answer_norm):
+        # (?<![\w.]) also stops "25" from matching inside a decimal such as "100.25".
+        if norm and re.search(r"(?<![\w.])" + re.escape(norm) + r"(?!\w)", answer_norm):
             return True
     return False
 
@@ -242,6 +240,9 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "negative_generator_refused": sum(bool(g["generator_refused"]) for _, g in neg_g),
             "negative_verifier_rejected": sum(g["verify"] == "no" for _, g in neg_g),
             "negative_verifier_passed": sum(g["verify"] == "yes" for _, g in neg_g),
+            # Rejections by the deterministic number check (counted apart from the LLM verifier's).
+            "answerable_grounding_rejected": sum(g["verify"] == "grounding" for _, g in ans_g),
+            "negative_grounding_rejected": sum(g["verify"] == "grounding" for _, g in neg_g),
         }
         # Structured fields (only present in results produced after the graph started returning them).
         sources = [g.get("refusal_source") for g in graph if g.get("refusal_source") is not None]
@@ -249,6 +250,7 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             out["graph"]["refused_by_generator"] = sum(s == "generator" for s in sources)
             out["graph"]["refused_by_verifier"] = sum(s == "verifier" for s in sources)
             out["graph"]["refused_by_grounding_check"] = sum(s == "grounding_check" for s in sources)
+            out["graph"]["refused_by_step_limit"] = sum(s == "step_limit" for s in sources)
         reasons = [g.get("stop_reason") for g in graph if g.get("stop_reason")]
         if reasons:
             out["graph"]["stop_reasons"] = {r: reasons.count(r) for r in sorted(set(reasons))}
@@ -346,8 +348,9 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
             f"| Negative: generator already refused / verifier rejected / verifier passed | {g['negative_generator_refused']} / {g['negative_verifier_rejected']} / {g['negative_verifier_passed']} |\n"
         )
         if "refused_by_generator" in g:
-            text += (f"| Final refusals by source: generator / number check / LLM verifier | {g['refused_by_generator']} / "
-                     f"{g.get('refused_by_grounding_check', 0)} / {g['refused_by_verifier']} |\n")
+            text += (f"| Final refusals by source: generator / number check / LLM verifier / step limit | "
+                     f"{g['refused_by_generator']} / {g.get('refused_by_grounding_check', 0)} / "
+                     f"{g['refused_by_verifier']} / {g.get('refused_by_step_limit', 0)} |\n")
         if "stop_reasons" in g:
             text += "| Why the retrieve/grade loop stopped | " + ", ".join(f"{k}: {v}" for k, v in g["stop_reasons"].items()) + " |\n"
         if "mean_node_seconds" in g:
@@ -358,12 +361,15 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
 
 # ---------------- rescore ----------------
 
-def rescore(prefix: str, dataset_path: Path) -> Dict[str, Any]:
+def rescore(prefix: str, dataset_path: Optional[Path] = None) -> Dict[str, Any]:
     """Recompute the key-fact fields and all summaries from the saved results of an earlier run.
 
     No model is called: only the saved answers are re-scored against the dataset's current key_facts.
+    The dataset defaults to the one recorded in the saved summary, so this works for any --out-prefix.
     """
     paths = out_paths(prefix)
+    saved = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    dataset_path = dataset_path or Path(saved["meta"]["dataset"])
     rows = {r["id"]: r for r in load_jsonl(dataset_path)}
     records = load_jsonl(paths["results"])
     runs: Dict[str, Dict[int, List[Dict[str, Any]]]] = {}
@@ -380,11 +386,13 @@ def rescore(prefix: str, dataset_path: Path) -> Dict[str, Any]:
         per_repeat = [runs[version][i] for i in sorted(runs[version])]
         summary[version] = add_repeat_stats(summarize(per_repeat[0]), per_repeat)
 
-    meta = json.loads(paths["summary"].read_text(encoding="utf-8"))["meta"]
+    meta = saved["meta"]
     meta["key_facts_rescored_from_saved_answers"] = True
-    with paths["results"].open("w", encoding="utf-8") as f:
+    tmp = paths["results"].with_suffix(".jsonl.tmp")          # write beside, then swap in, so a crash cannot truncate it
+    with tmp.open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    os.replace(tmp, paths["results"])
     write_json(paths["summary"], {"meta": meta, "summary": summary})
     tables = render_tables(summary)
     paths["tables"].write_text(tables, encoding="utf-8")
@@ -466,7 +474,9 @@ def positive_int(text: str) -> int:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m eval.compare", description=__doc__.split("\n")[0])
-    p.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    p.add_argument("--dataset", type=Path, default=None,
+                   help=f"Dataset to run (default {DEFAULT_DATASET}). With --rescore the default is the dataset "
+                        "recorded in the saved summary.")
     p.add_argument("--versions", nargs="+", choices=VERSIONS, default=VERSIONS)
     p.add_argument("--limit", type=positive_int, default=None, help="Only the first N questions (smoke test).")
     p.add_argument("--k", type=positive_int, default=None,
@@ -483,7 +493,8 @@ def main(argv=None) -> int:
         rescore(args.out_prefix, args.dataset)
         return 0
 
-    non_default = (args.k or args.limit or args.dataset != DEFAULT_DATASET or sorted(args.versions) != sorted(VERSIONS))
+    dataset = args.dataset or DEFAULT_DATASET
+    non_default = (args.k or args.limit or dataset != DEFAULT_DATASET or sorted(args.versions) != sorted(VERSIONS))
     if non_default and args.out_prefix == DEFAULT_PREFIX:
         sys.exit("This run differs from the default (--k, --limit, --dataset or --versions), so it would overwrite "
                  f"the main results in {DEFAULT_PREFIX}_*. Pass --out-prefix to write it elsewhere.")
@@ -499,7 +510,7 @@ def main(argv=None) -> int:
     except OllamaNotReady as exc:
         sys.exit(str(exc))
 
-    run(pdf_path, args.dataset, args.versions, args.limit, repeats=args.repeats, prefix=args.out_prefix,
+    run(pdf_path, dataset, args.versions, args.limit, repeats=args.repeats, prefix=args.out_prefix,
         k_override=args.k)
     return 0
 

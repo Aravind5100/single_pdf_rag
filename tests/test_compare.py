@@ -290,7 +290,9 @@ def test_stems_must_be_listed_explicitly():
 
 
 def dataset_rows_with_key_facts():
-    rows = [json.loads(l) for l in open("eval/eval_dataset_extended.jsonl", encoding="utf-8") if l.strip()]
+    path = Path(__file__).resolve().parent.parent / "eval" / "eval_dataset_extended.jsonl"
+    with path.open(encoding="utf-8") as f:
+        rows = [json.loads(l) for l in f if l.strip()]
     return [r for r in rows if r.get("key_facts")]
 
 
@@ -435,3 +437,77 @@ def test_summarize_verdicts_counts_unclean_replies():
     results = [{"kind": "control", "verifier_said_yes": True, "verifier_raw": "yes"},
                {"kind": "fabrication", "verifier_said_yes": False, "verifier_raw": "No, it adds a claim"}]
     assert summarize_verdicts(results)["unclean_replies"] == 1
+
+
+# ---- second review round: matcher edge cases, trace parsing, rescore, CLI ----
+
+GROUNDING_TRACE = [
+    "retrieve: query='q' -> 6 chunks, pages [19]",
+    "grade_context: relevant=yes (raw='yes', retries=0/2)",
+    "generate: 40 chars, generator_refused=False",
+    "verify: numbers ['40'] in the answer are not in the context, rejecting without the model check",
+    "refuse: returning the fixed refusal string",
+]
+
+
+def test_parse_trace_marks_a_number_check_rejection_as_grounding_not_an_llm_verdict():
+    assert parse_trace(GROUNDING_TRACE)["verify"] == "grounding"
+
+
+def test_number_check_rejections_are_counted_apart_from_llm_verifier_rejections():
+    rec = score_record("graph", row("A", "fact", [19]),
+                       graph_result("x", GROUNDING_TRACE, refusal_source="grounding_check",
+                                    stop_reason="relevant", node_seconds={"generate": 1.0}), 5.0)
+    g = summarize([rec])["graph"]
+
+    assert g["answerable_grounding_rejected"] == 1 and g["answerable_verifier_rejected"] == 0
+    assert g["refused_by_grounding_check"] == 1
+
+
+def test_step_limit_refusals_are_counted_so_the_sources_add_up():
+    rec = score_record("graph", row("N", "negative", []),
+                       graph_result(REFUSAL_MESSAGE, ["graph: step limit 25 exceeded, returning the fixed refusal string"],
+                                    refusal_source="step_limit", stop_reason="step_limit", node_seconds={}), 5.0)
+    g = summarize([rec])["graph"]
+
+    assert g["refused_by_step_limit"] == 1
+    assert g["refused_by_generator"] + g["refused_by_verifier"] + g["refused_by_grounding_check"] + g["refused_by_step_limit"] == 1
+
+
+def test_matcher_handles_dashes_and_am_pm_spellings():
+    assert score_key_facts(["844-459-7405"], "Call 844\u2013459\u20137405") == [True]
+    assert score_key_facts(["10:00 p.m.|10 p.m."], "Quiet hours start at 10:00 PM") == [True]
+    assert score_key_facts(["8:00 a.m."], "until 8:00 AM") == [True]
+
+
+def test_a_fact_number_does_not_match_inside_a_decimal():
+    assert score_key_facts(["25"], "The fee is $100.25") == [False]
+    assert score_key_facts(["25"], "The fee is $25.00 per lock-out") == [True]
+
+
+def test_more_citation_forms_cannot_satisfy_a_fact():
+    for citation in ("[Pages 18 and 25]", "[Page 19\u201325]", "p. 25", "(page 25)"):
+        assert score_key_facts(["25"], f"No fee applies. {citation}") == [False], citation
+
+
+def test_rescore_defaults_to_the_dataset_recorded_in_the_saved_summary(tmp_path):
+    dataset = tmp_path / "other.jsonl"
+    dataset.write_text(json.dumps({**row("Z9", "fact", [19]), "key_facts": ["alpha"]}) + "\n")
+    prefix = str(tmp_path / "run")
+    rec = score_record("chain", row("Z9", "fact", [19]), result("alpha", [19]), 1.0)
+    rec["repeat"] = 0
+    Path(prefix + "_results.jsonl").write_text(json.dumps(rec) + "\n")
+    Path(prefix + "_summary.json").write_text(json.dumps({"meta": {"dataset": str(dataset)}, "summary": {}}))
+
+    summary = rescore(prefix)                       # no dataset argument: it must read meta["dataset"]
+
+    assert summary["chain"]["key_fact_recall"] == 1.0
+    assert not Path(prefix + "_results.jsonl.tmp").exists()      # the temp file was swapped in
+
+
+def test_a_default_run_passes_the_output_guard_and_a_prefixed_one_too(monkeypatch):
+    monkeypatch.delenv("PDF_PATH", raising=False)
+    for argv in ([], ["--k", "10", "--out-prefix", "eval/compare_k10"]):
+        with pytest.raises(SystemExit) as err:
+            compare_main(argv)
+        assert "PDF_PATH" in str(err.value) and "--out-prefix" not in str(err.value), argv
