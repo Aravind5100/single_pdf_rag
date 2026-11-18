@@ -214,3 +214,24 @@ def test_out_paths_follow_the_prefix():
     assert str(p["results"]) == "eval/compare_adversarial_results.jsonl"
     assert str(p["summary"]) == "eval/compare_adversarial_summary.json"
     assert str(p["tables"]) == "eval/compare_adversarial_tables.md"
+
+
+# ---- verifier check (pure logic) ----
+
+from eval.verifier_check import render as render_verifier, summarize_verdicts
+
+
+def test_summarize_verdicts_counts_accepted_and_rejected_per_kind():
+    results = [
+        {"kind": "control", "verifier_said_yes": True},
+        {"kind": "control", "verifier_said_yes": True},
+        {"kind": "contradiction", "verifier_said_yes": False},
+        {"kind": "contradiction", "verifier_said_yes": True},
+        {"kind": "fabrication", "verifier_said_yes": False},
+    ]
+    s = summarize_verdicts(results)
+
+    assert s["control"] == {"n": 2, "accepted": 2, "rejected": 0}
+    assert s["contradiction"] == {"n": 2, "accepted": 1, "rejected": 1}
+    assert s["fabrication"] == {"n": 1, "accepted": 0, "rejected": 1}
+    assert "| Seeded contradiction | 2 | 1 | 1 | reject |" in render_verifier(s)
