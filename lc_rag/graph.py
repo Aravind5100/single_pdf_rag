@@ -8,6 +8,7 @@
     generate -> verify
     verify --supported--> END
     verify --not supported--> refuse -> END
+    (verify first checks that every number in the answer appears in the context, then asks the model)
 
 The grader and verifier are small temperature-0 yes/no calls to the local model.
 Every node appends a line to state["trace"] (and logs it), so the path a
@@ -29,6 +30,7 @@ from langgraph.graph import END, START, StateGraph
 
 from generation_strategy import LLM_MODEL
 from lc_rag.chain import LCRag, chunk_dicts
+from lc_rag.grounding import ungrounded_numbers
 from lc_rag.prompts import REFUSAL_MESSAGE, docs_to_context, is_refusal
 
 log = logging.getLogger("lc_rag.graph")
@@ -58,7 +60,7 @@ class RagState(TypedDict, total=False):
     stalled: bool                       # the latest rewrite repeated a query that was already searched
     stop_reason: str                    # why the loop stopped: relevant | retries_exhausted | stalled
     supported: bool                     # verifier decision for the answer
-    refusal_source: str                 # who refused: generator | verifier | "" (no refusal)
+    refusal_source: str                 # who refused: generator | grounding_check | verifier | "" (no refusal)
     trace: Annotated[List[str], operator.add]   # each node appends; operator.add concatenates
     timings: Annotated[List[str], operator.add]  # "node=seconds" for every node execution
 
@@ -184,8 +186,14 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
             # final text is the fixed refusal string.
             return {"supported": False, "refusal_source": "generator",
                     **note("verify: generator already refused, skipping the check")}
+        context = docs_to_context(state["chunks"])
+        missing = ungrounded_numbers(state["answer"], context)
+        if missing:
+            # A number in the answer that is nowhere in the context is invented. Reject without asking the model.
+            return {"supported": False, "refusal_source": "grounding_check",
+                    **note(f"verify: numbers {missing} in the answer are not in the context, rejecting without the model check")}
         supported, raw = ask_yes_no(VERIFY_PROMPT.format(
-            question=state["question"], context=docs_to_context(state["chunks"]), answer=state["answer"]))
+            question=state["question"], context=context, answer=state["answer"]))
         return {"supported": supported, "refusal_source": "" if supported else "verifier",
                 **note(f"verify: supported={'yes' if supported else 'no'} (raw={raw!r})")}
 

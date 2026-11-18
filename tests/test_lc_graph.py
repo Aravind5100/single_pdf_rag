@@ -227,3 +227,33 @@ def test_exceeding_the_step_limit_returns_the_fixed_refusal_instead_of_raising()
 
     assert out["answer"] == REFUSAL_MESSAGE and out["refused"]
     assert out["stop_reason"] == "step_limit" and "step limit 3 exceeded" in out["trace"][0]
+
+
+# ---- deterministic number check inside verify ----
+
+def test_invented_number_is_rejected_by_the_number_check_without_calling_the_model_verifier():
+    rag = FakeRag(answer="A $40 registration fee applies. [Page 19]")        # context text has no '40'
+    calls = []
+
+    class Judge(FakeListChatModel):
+        def _call(self, *args, **kwargs):
+            calls.append(1)
+            return super()._call(*args, **kwargs)
+
+    out = GraphRag(rag, judge_llm=Judge(responses=["yes"])).answer("Are pets allowed?", k=6)
+
+    assert len(calls) == 1                                      # only the grader ran, not the verifier
+    assert out["answer"] == REFUSAL_MESSAGE and out["refusal_source"] == "grounding_check"
+    assert "numbers ['40'] in the answer are not in the context" in " ".join(out["trace"])
+
+
+def test_a_number_that_is_in_the_context_passes_through_to_the_model_verifier():
+    class RagWithNumber(FakeRag):
+        def retrieve(self, query, k):
+            self.retrieve_queries.append(query)
+            return [Document(page_content="A $40 fee applies.", metadata={"page_number": 19, "chunk_id": "19_chunk_1"})]
+
+    rag = RagWithNumber(answer="A $40 fee applies. [Page 19]")
+    _, out = run(["yes", "yes"], rag=rag)                       # grade yes, verify yes
+
+    assert out["refusal_source"] == "" and out["answer"] == "A $40 fee applies. [Page 19]"

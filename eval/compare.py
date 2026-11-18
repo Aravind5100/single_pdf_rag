@@ -248,6 +248,7 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         if sources:
             out["graph"]["refused_by_generator"] = sum(s == "generator" for s in sources)
             out["graph"]["refused_by_verifier"] = sum(s == "verifier" for s in sources)
+            out["graph"]["refused_by_grounding_check"] = sum(s == "grounding_check" for s in sources)
         reasons = [g.get("stop_reason") for g in graph if g.get("stop_reason")]
         if reasons:
             out["graph"]["stop_reasons"] = {r: reasons.count(r) for r in sorted(set(reasons))}
@@ -345,7 +346,8 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
             f"| Negative: generator already refused / verifier rejected / verifier passed | {g['negative_generator_refused']} / {g['negative_verifier_rejected']} / {g['negative_verifier_passed']} |\n"
         )
         if "refused_by_generator" in g:
-            text += f"| Final refusals by source: generator / verifier | {g['refused_by_generator']} / {g['refused_by_verifier']} |\n"
+            text += (f"| Final refusals by source: generator / number check / LLM verifier | {g['refused_by_generator']} / "
+                     f"{g.get('refused_by_grounding_check', 0)} / {g['refused_by_verifier']} |\n")
         if "stop_reasons" in g:
             text += "| Why the retrieve/grade loop stopped | " + ", ".join(f"{k}: {v}" for k, v in g["stop_reasons"].items()) + " |\n"
         if "mean_node_seconds" in g:
