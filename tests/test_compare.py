@@ -234,10 +234,20 @@ def test_summarize_verdicts_counts_accepted_and_rejected_per_kind():
     ]
     s = summarize_verdicts(results)
 
-    assert s["control"] == {"n": 2, "accepted": 2, "rejected": 0}
-    assert s["contradiction"] == {"n": 2, "accepted": 1, "rejected": 1}
-    assert s["fabrication"] == {"n": 1, "accepted": 0, "rejected": 1}
-    assert "| Seeded contradiction | 2 | 1 | 1 | reject |" in render_verifier(s)
+    assert s["control"] == {"n": 2, "accepted": 2, "rejected": 0, "flagged_by_number_check": 0, "rejected_by_either": 0}
+    assert s["contradiction"] == {"n": 2, "accepted": 1, "rejected": 1, "flagged_by_number_check": 0, "rejected_by_either": 1}
+    assert s["fabrication"] == {"n": 1, "accepted": 0, "rejected": 1, "flagged_by_number_check": 0, "rejected_by_either": 1}
+    assert "| Seeded contradiction | 2 | 1 | 0 | 1 | reject |" in render_verifier(s)
+
+
+def test_summarize_verdicts_counts_the_number_check_separately_and_in_combination():
+    results = [
+        {"kind": "fabrication", "verifier_said_yes": True, "verifier_raw": "yes", "grounding_issues": ["40"]},   # only the number check
+        {"kind": "fabrication", "verifier_said_yes": False, "verifier_raw": "no", "grounding_issues": []},        # only the LLM
+        {"kind": "fabrication", "verifier_said_yes": True, "verifier_raw": "yes", "grounding_issues": []},        # neither
+    ]
+    f = summarize_verdicts(results)["fabrication"]
+    assert (f["rejected"], f["flagged_by_number_check"], f["rejected_by_either"]) == (1, 1, 2)
 
 
 # ---- reviewer findings: whole-word matching, citations, normalization, repeats, rescore, CLI ----
@@ -386,3 +396,42 @@ def test_summarize_works_on_results_saved_before_these_fields_existed():
     g = summarize(recs)["graph"]
     assert "refused_by_generator" not in g and "stop_reasons" not in g and "mean_node_seconds" not in g
     render_tables({"graph": summarize(recs)})        # must not raise
+
+
+# ---- verifier check helpers ----
+
+from eval.verifier_check import build_candidates, is_clean_reply
+
+
+def test_is_clean_reply_accepts_only_a_bare_yes_or_no():
+    assert is_clean_reply("yes") and is_clean_reply("No.") and is_clean_reply("  YES!\n")
+    assert not is_clean_reply("Yes, it is supported") and not is_clean_reply("") and not is_clean_reply("maybe")
+
+
+def test_build_candidates_appends_the_invented_sentence_to_the_control():
+    cases = [
+        {"id": "Q1", "kind": "contradiction", "answer": "Yes, cats are allowed."},
+        {"id": "Q1", "kind": "fabrication", "append": "A $40 fee applies.", "invented": "$40"},
+    ]
+    candidates, skipped = build_candidates("Only fish are allowed.", cases, context="[Page 19] fish tanks only")
+
+    assert skipped == []
+    assert candidates == [
+        {"kind": "control", "answer": "Only fish are allowed."},
+        {"kind": "contradiction", "answer": "Yes, cats are allowed."},
+        {"kind": "fabrication", "answer": "Only fish are allowed. A $40 fee applies."},
+    ]
+
+
+def test_build_candidates_skips_a_case_whose_invented_text_is_in_the_context():
+    cases = [{"id": "Q1", "kind": "fabrication", "append": "A $40 fee applies.", "invented": "$40"}]
+    candidates, skipped = build_candidates("control", cases, context="the fee is $40 per year")
+
+    assert [c["kind"] for c in candidates] == ["control"]
+    assert skipped[0]["id"] == "Q1" and "$40" in skipped[0]["reason"]
+
+
+def test_summarize_verdicts_counts_unclean_replies():
+    results = [{"kind": "control", "verifier_said_yes": True, "verifier_raw": "yes"},
+               {"kind": "fabrication", "verifier_said_yes": False, "verifier_raw": "No, it adds a claim"}]
+    assert summarize_verdicts(results)["unclean_replies"] == 1

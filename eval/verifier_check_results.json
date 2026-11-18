@@ -3,271 +3,351 @@
     "control": {
       "n": 12,
       "accepted": 12,
-      "rejected": 0
+      "rejected": 0,
+      "flagged_by_number_check": 0,
+      "rejected_by_either": 0
     },
     "contradiction": {
       "n": 12,
       "accepted": 0,
-      "rejected": 12
+      "rejected": 12,
+      "flagged_by_number_check": 8,
+      "rejected_by_either": 12
     },
     "fabrication": {
       "n": 12,
-      "accepted": 2,
-      "rejected": 10
-    }
+      "accepted": 8,
+      "rejected": 4,
+      "flagged_by_number_check": 8,
+      "rejected_by_either": 9
+    },
+    "unclean_replies": 0
   },
+  "skipped_cases": [],
   "results": [
     {
       "id": "Q1",
       "kind": "control",
       "answer": "No, pets are prohibited in the residence halls, except for fish in a properly maintained aquarium of 10 gallons or less. [Page 19]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q1",
       "kind": "contradiction",
       "answer": "Yes, cats and small dogs are allowed in the residence halls. [Page 19]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": []
     },
     {
       "id": "Q1",
       "kind": "fabrication",
-      "answer": "No, pets are prohibited in the residence halls, except for fish in an aquarium of 10 gallons or less, and a $40 annual registration fee applies to each aquarium. [Page 19]",
+      "answer": "No, pets are prohibited in the residence halls, except for fish in a properly maintained aquarium of 10 gallons or less. [Page 19] A $40 annual registration fee applies to each aquarium.",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": [
+        "40"
+      ]
     },
     {
       "id": "Q3",
       "kind": "control",
       "answer": "According to the provided context, the designated quiet hours in the residence halls are:\n\n* Sunday-Thursday: 10:00 p.m.-8:00 a.m.\n* Friday-Saturday: 12:00 a.m. (midnight)-10:00 a.m.\n\n[Page 19]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q3",
       "kind": "contradiction",
       "answer": "Quiet hours are 8:00 p.m. to 6:00 a.m. every night of the week. [Page 19]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "6"
+      ]
     },
     {
       "id": "Q3",
       "kind": "fabrication",
-      "answer": "Quiet hours are 10:00 p.m. to 8:00 a.m. Sunday through Thursday and 12:00 a.m. to 10:00 a.m. Friday and Saturday, and violations carry a $100 fine. [Page 19]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "According to the provided context, the designated quiet hours in the residence halls are:\n\n* Sunday-Thursday: 10:00 p.m.-8:00 a.m.\n* Friday-Saturday: 12:00 a.m. (midnight)-10:00 a.m.\n\n[Page 19] Violations carry a $100 fine.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": [
+        "100"
+      ]
     },
     {
       "id": "Q4",
       "kind": "control",
       "answer": "According to the provided context, 24-hour quiet hours begin at 10:00 p.m. on the last Friday of classes before each semester's final examination period [Page 19]. They are observed throughout the duration of final exams.",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q4",
       "kind": "contradiction",
       "answer": "24-hour quiet hours begin at 6:00 p.m. on the first Monday of the semester and last all semester. [Page 19]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "6"
+      ]
     },
     {
       "id": "Q4",
       "kind": "fabrication",
-      "answer": "24-hour quiet hours begin at 10:00 p.m. on the last Friday of classes before final exams and last through final exams, and a $75 fine applies to any violation. [Page 19]",
+      "answer": "According to the provided context, 24-hour quiet hours begin at 10:00 p.m. on the last Friday of classes before each semester's final examination period [Page 19]. They are observed throughout the duration of final exams. A $75 fine applies to any violation.",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "75"
+      ]
     },
     {
       "id": "Q5",
       "kind": "control",
       "answer": "According to the provided context, residents who are 21 years of age or older may possess and store in their assigned living space no more than ONE of the following:\n\n* Twelve 12 oz. beers\n* One 1500 ml bottle of wine or two 750 ml bottles of wine\n* One 750 ml bottle of distilled liquor\n\n[Page 11]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q5",
       "kind": "contradiction",
       "answer": "Residents who are 21 or older may possess up to forty-eight 12 oz. beers and three bottles of liquor. [Page 11]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "40",
+        "8",
+        "3"
+      ]
     },
     {
       "id": "Q5",
       "kind": "fabrication",
-      "answer": "Residents who are 21 or older may possess no more than twelve 12 oz. beers, one 750 ml bottle of liquor, or one 1500 ml bottle of wine, and must show a state-issued alcohol permit. [Page 11]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "According to the provided context, residents who are 21 years of age or older may possess and store in their assigned living space no more than ONE of the following:\n\n* Twelve 12 oz. beers\n* One 1500 ml bottle of wine or two 750 ml bottles of wine\n* One 750 ml bottle of distilled liquor\n\n[Page 11] Residents must also show a state-issued alcohol permit.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q8",
       "kind": "control",
       "answer": "According to the provided context, tampering with fire safety equipment is grounds for disciplinary action, including removal from housing areas, and criminal prosecution. Additionally, it is a violation of the Code of Virginia and is prohibited. Misuse of such equipment is considered a Class 1 Misdemeanor that is punishable by law with one year in prison, a $2,500 fine, or both. [Page 16]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q8",
       "kind": "contradiction",
       "answer": "Tampering with fire safety equipment has no consequences if it is the resident's first offense. [Page 16]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": []
     },
     {
       "id": "Q8",
       "kind": "fabrication",
-      "answer": "Tampering with fire safety equipment is grounds for disciplinary action, including removal from housing, and criminal prosecution, plus a mandatory $500 fine. [Page 16]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "According to the provided context, tampering with fire safety equipment is grounds for disciplinary action, including removal from housing areas, and criminal prosecution. Additionally, it is a violation of the Code of Virginia and is prohibited. Misuse of such equipment is considered a Class 1 Misdemeanor that is punishable by law with one year in prison, a $2,500 fine, or both. [Page 16] A mandatory $500 fine also applies.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": [
+        "500"
+      ]
     },
     {
       "id": "Q9",
       "kind": "control",
       "answer": "According to the provided context, the process for appealing a no-contact order issued by Housing and Residence Life (HRL) is as follows:\n\n1. The individual who is issued a no-contact order as an interim measure may appeal the order by submitting, in writing, their appeal to HRL within 10 business days of receipt of the no-contact order [Page 15].\n2. As part of the appeal, the individual may submit evidence and witness statements in writing.\n3. Upon receipt of an appeal, HRL shall notify the other party to the no-contact order of the appeal, provide them with a copy of the appeal documents, and inform them that they may submit a written response within 10 business days.\n4. Any written response received will be provided to the appealing party, the appeal coordinator, and the appeal officer.\n5. Upon receipt of an appeal, HRL shall designate an appeal officer to review and decide the appeal.\n6. The appeal officer will determine whether the no-contact order is appropriate based on the criteria in paragraphs 1 and 2 using the factors provided in paragraph 10.\n7. The appeal officer's determination is final.",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q9",
       "kind": "contradiction",
       "answer": "An appeal must be made verbally to the Dean of Students within 24 hours. [Page 15]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "24"
+      ]
     },
     {
       "id": "Q9",
       "kind": "fabrication",
-      "answer": "The appeal is submitted in writing to HRL within 10 business days, and the final decision is made by a student panel vote. [Page 15]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "According to the provided context, the process for appealing a no-contact order issued by Housing and Residence Life (HRL) is as follows:\n\n1. The individual who is issued a no-contact order as an interim measure may appeal the order by submitting, in writing, their appeal to HRL within 10 business days of receipt of the no-contact order [Page 15].\n2. As part of the appeal, the individual may submit evidence and witness statements in writing.\n3. Upon receipt of an appeal, HRL shall notify the other party to the no-contact order of the appeal, provide them with a copy of the appeal documents, and inform them that they may submit a written response within 10 business days.\n4. Any written response received will be provided to the appealing party, the appeal coordinator, and the appeal officer.\n5. Upon receipt of an appeal, HRL shall designate an appeal officer to review and decide the appeal.\n6. The appeal officer will determine whether the no-contact order is appropriate based on the criteria in paragraphs 1 and 2 using the factors provided in paragraph 10.\n7. The appeal officer's determination is final. The final decision is made by a student panel vote.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q11",
       "kind": "control",
       "answer": "According to the provided context, residents are provided with lock-out assistance for up to two (2) occasions per academic semester at no charge. Each request for lock-out assistance after this will result in a $25.00 fee being placed on the student's account. [Page 29]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q11",
       "kind": "contradiction",
       "answer": "Residents get five free lock-outs per semester, and each additional lock-out costs $100. [Page 29]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "100"
+      ]
     },
     {
       "id": "Q11",
       "kind": "fabrication",
-      "answer": "Residents get two free lock-outs per semester and then pay $25.00 each, and the fee doubles to $50 after the fifth lock-out. [Page 29]",
+      "answer": "According to the provided context, residents are provided with lock-out assistance for up to two (2) occasions per academic semester at no charge. Each request for lock-out assistance after this will result in a $25.00 fee being placed on the student's account. [Page 29] The fee doubles to $50 after the fifth lock-out.",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "50"
+      ]
     },
     {
       "id": "Q12",
       "kind": "control",
       "answer": "According to the provided context, the company that provides internet service to residents is Boldyn. Students experiencing connectivity issues with wired or wireless internet should contact 844-459-7405 or visit https://gmu.hed.boldyn.com.",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q12",
       "kind": "contradiction",
       "answer": "Comcast provides internet service to residents; students should call 703-555-0100 for connectivity problems. [Page 28]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "555",
+        "0100"
+      ]
     },
     {
       "id": "Q12",
       "kind": "fabrication",
-      "answer": "Boldyn provides internet service; students with problems should call 844-459-7405, and the service is free only for the first semester. [Page 28]",
+      "answer": "According to the provided context, the company that provides internet service to residents is Boldyn. Students experiencing connectivity issues with wired or wireless internet should contact 844-459-7405 or visit https://gmu.hed.boldyn.com. The service is free only for the first semester.",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": []
     },
     {
       "id": "Q13",
       "kind": "control",
       "answer": "(703) 993-2380 [Page 35]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q13",
       "kind": "contradiction",
       "answer": "(703) 555-0199 [Page 35]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "555",
+        "0199"
+      ]
     },
     {
       "id": "Q13",
       "kind": "fabrication",
-      "answer": "(703) 993-2380, and each student is limited to exactly five visits. [Page 35]",
+      "answer": "(703) 993-2380 [Page 35] Each student is limited to exactly five visits.",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": [
+        "5"
+      ]
     },
     {
       "id": "Q14",
       "kind": "control",
       "answer": "No. According to the context, \"Completing the Bias Incident Report form is not an official channel for reporting protected class discrimination or harassment at the university.\" [Page 31]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q14",
       "kind": "contradiction",
       "answer": "Yes, the Bias Incident Report form is the official channel for reporting protected class discrimination or harassment. [Page 31]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": []
     },
     {
       "id": "Q14",
       "kind": "fabrication",
-      "answer": "No, it is not an official channel, and any reports must be filed within 30 days of the incident. [Page 31]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "No. According to the context, \"Completing the Bias Incident Report form is not an official channel for reporting protected class discrimination or harassment at the university.\" [Page 31] Reports must be filed within 30 days of the incident.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q16",
       "kind": "control",
       "answer": "A converter box. [Page 28]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q16",
       "kind": "contradiction",
       "answer": "Residents must buy a digital cable subscription costing $15 per month. [Page 28]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "15"
+      ]
     },
     {
       "id": "Q16",
       "kind": "fabrication",
-      "answer": "A converter box, which Housing sells at the front desk for $20. [Page 28]",
-      "verifier_raw": "no",
-      "verifier_said_yes": false
+      "answer": "A converter box. [Page 28] Housing sells the converter box at the front desk for $20.",
+      "verifier_raw": "yes",
+      "verifier_said_yes": true,
+      "grounding_issues": [
+        "20"
+      ]
     },
     {
       "id": "Q17",
       "kind": "control",
       "answer": "No, according to the text, \"No adjustment in the charge for room rent will be made because of absence from the University for periods during the academic year.\" [Page 29]",
       "verifier_raw": "yes",
-      "verifier_said_yes": true
+      "verifier_said_yes": true,
+      "grounding_issues": []
     },
     {
       "id": "Q17",
       "kind": "contradiction",
       "answer": "Yes, room rent is prorated for any absence longer than one week. [Page 29]",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": []
     },
     {
       "id": "Q17",
       "kind": "fabrication",
-      "answer": "No adjustment in room rent is made for absence during the academic year, but residents who withdraw in the first week receive a $200 credit. [Page 29]",
+      "answer": "No, according to the text, \"No adjustment in the charge for room rent will be made because of absence from the University for periods during the academic year.\" [Page 29] Residents who withdraw in the first week receive a $200 credit.",
       "verifier_raw": "no",
-      "verifier_said_yes": false
+      "verifier_said_yes": false,
+      "grounding_issues": [
+        "200"
+      ]
     }
   ]
 }
