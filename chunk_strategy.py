@@ -1,5 +1,10 @@
 import re
 
+# Single source of truth for chunking parameters. The cache key in main.py and
+# the eval import these, so the cache key cannot drift from the real chunking.
+CHUNK_SIZE = 900
+OVERLAP = 350
+
 def normalize_for_search(text: str) -> str:
 
     if text is None:
@@ -9,7 +14,7 @@ def normalize_for_search(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-def chunk_text(text: str, chunk_size: int = 900, overlap: int = 350):
+def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP):
     chunks = []
     start = 0
     text = text.strip()

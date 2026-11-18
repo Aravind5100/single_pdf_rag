@@ -11,7 +11,7 @@ from persistence import (
     save_meta,
 )
 from extract_pdf_text import extract_text_from_pdf
-from chunk_strategy import chunk_pages
+from chunk_strategy import chunk_pages, CHUNK_SIZE, OVERLAP
 from embedding_strategy import embed_chunks, EMBED_MODEL
 from index_strategy import build_faiss_index
 from generation_strategy import answer_question
@@ -21,8 +21,6 @@ PDF_PATH = os.environ.get("PDF_PATH")
 if not PDF_PATH:
     st.error("PDF_PATH environment variable not set. Please set it before running the app.")
     st.stop()
-CHUNK_SIZE = 900
-OVERLAP = 350
 
 cache_key = build_cache_key(
     PDF_PATH,
