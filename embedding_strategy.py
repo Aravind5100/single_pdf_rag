@@ -9,7 +9,8 @@ def embed_text(text: str) -> list[float]:
         json={
             "model": EMBED_MODEL,
             "prompt": text
-        }
+        },
+        timeout=120,  # same limit as the generation call, so a stuck server fails instead of hanging
     )
     response.raise_for_status()
     return response.json()["embedding"]
