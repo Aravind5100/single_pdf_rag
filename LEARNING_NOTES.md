@@ -50,7 +50,7 @@ Mine are:
 | `grade_context` | Ask the model "does this context help answer the question? yes or no". |
 | `rewrite_query` | Ask the model for a better search query, add 1 to `retries`, and note whether the new query is identical to one already searched (`stalled`). |
 | `generate` | Answer the original question from the chunks, using the grounded prompt. |
-| `verify` | Ask the model "is every claim in this answer supported by the context? yes or no". |
+| `verify` | First check that every number in the answer appears in the context (a plain string comparison, no model), then ask the model "is every claim in this answer supported by the context? yes or no". |
 | `refuse` | Replace the answer with the fixed refusal sentence. |
 
 Nodes do not decide what comes next. They only do their job and update the notebook.

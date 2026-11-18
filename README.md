@@ -71,10 +71,13 @@ flowchart TD
 │
 ├── eval/
 │   ├── eval_runner.py       # Retrieval eval (Recall@K, MRR), hand-written pipeline
-│   ├── compare.py           # Three-way comparison (retrieval, refusal, latency)
+│   ├── compare.py           # Three-way comparison (retrieval, refusal, key facts, latency)
 │   ├── COMPARISON.md        # Results and honest analysis of that comparison
+│   ├── verifier_check.py    # Tests the LangGraph verifier with seeded wrong answers
+│   ├── verifier_cases.jsonl # The seeded contradictions and fabrications it uses
 │   ├── eval_dataset.jsonl   # Ground-truth evaluation set (10 questions)
-│   ├── eval_dataset_extended.jsonl  # 26 questions: 16 answerable, 10 negative
+│   ├── eval_dataset_extended.jsonl  # 26 questions: 16 answerable (with key_facts), 10 negative
+│   ├── eval_dataset_adversarial.jsonl  # 8 harder negatives (topic covered, detail absent)
 │   ├── eval_results.jsonl   # Per-question results (latest run)
 │   ├── eval_summary.json    # Aggregate metrics (latest run)
 │   ├── baseline_results.jsonl  # Recorded baseline, per question
@@ -85,6 +88,7 @@ flowchart TD
 │   ├── retriever.py         # BM25 + FAISS EnsembleRetriever
 │   ├── chain.py             # LangChain pipeline (LCRag)
 │   ├── graph.py             # LangGraph pipeline (GraphRag)
+│   ├── grounding.py         # Deterministic check that numbers in an answer appear in the context
 │   ├── cli.py               # python -m lc_rag.cli
 │   └── app_lc.py            # separate Streamlit page
 │
@@ -212,6 +216,20 @@ Outputs:
 - `eval/eval_summary.json`
 
 The eval uses the same cache as the app, so repeat runs do not re-embed.
+
+More evaluation commands (all from the repository root, with `PDF_PATH` set):
+
+```bash
+python -m eval.compare                         # three-way comparison on 26 questions (about 20 minutes)
+python -m eval.compare --repeats 2             # repeat it to see latency variation
+python -m eval.compare --dataset eval/eval_dataset_adversarial.jsonl --out-prefix eval/compare_adversarial
+python -m eval.compare --k 10 --versions baseline chain --out-prefix eval/compare_k10   # the UI's retrieval depth
+python -m eval.verifier_check                  # seeded-error test of the LangGraph verifier
+python -m eval.compare --rescore               # re-score saved answers against the dataset's key_facts (no models run)
+```
+
+`eval.compare` refuses to overwrite the main results when a run differs from the default (`--k`, `--limit`,
+`--dataset` or `--versions`), so pass `--out-prefix` for those.
 `eval/baseline_results.jsonl` and `eval/baseline_summary.json` hold the recorded baseline to compare against.
 
 ## 🔀 Two versions: hand-written vs framework
@@ -248,8 +266,8 @@ streamlit run lc_rag/app_lc.py
 
 ### Comparison results
 
-Run with `PDF_PATH=... python -m eval.compare` on 26 questions (16 answerable, 10 negative) from
-`eval/eval_dataset_extended.jsonl`, using `llama3.1:8b` through Ollama. One run, one document.
+Run with `PDF_PATH=... python -m eval.compare --repeats 2` on 26 questions (16 answerable, 10 negative) from
+`eval/eval_dataset_extended.jsonl`, using `llama3.1:8b` through Ollama. Two repeats, one document.
 
 | Metric | Hand-written | LangChain | LangGraph |
 |---|---|---|---|
@@ -257,14 +275,21 @@ Run with `PDF_PATH=... python -m eval.compare` on 26 questions (16 answerable, 1
 | MRR | 0.859 | 0.969 | 0.969 |
 | Refusal correctness on negatives (n=10) | 10/10 | 10/10 | 10/10 |
 | Over-refusal on answerables (n=16) | 0/16 | 0/16 | 0/16 |
-| Mean latency per question (s) | 8.6 | 9.4 | 23.3 |
+| Answers containing all key facts | 12/16 | 12/16 | 12/16 |
+| Mean latency per question (s) | 11.0 | 10.1 | 25.1 |
 
-Short version: the framework versions ranked the right page higher on 3 of 16 questions (MRR 0.969 vs
-0.859). All three refused correctly every time, so the graph's grading and verification did not change
-any answer, and LangGraph cost about 2.5 times the latency of the plain chain. The samples are small,
-so none of these differences should be called significant. See [`eval/COMPARISON.md`](eval/COMPARISON.md)
-for the full analysis, the places the LangChain version cannot reproduce the baseline exactly, and the
-limits of the comparison.
+Short version:
+
+- The framework versions ranked the right page higher on 3 of 16 questions (MRR 0.969 vs 0.859).
+- All three refused correctly every time and miss the same four key facts (Q2, Q6, Q7, Q15).
+- The graph changed no answer. At `k=2`, where its grade-and-rewrite loop should help, it rescued nothing
+  and over-refused one more answerable question than the plain chain. It costs about 2.5 times the latency,
+  and the grading call is the biggest piece of that.
+- The LLM verifier misses most invented details (it rejected 4 of 12 answers with one invented sentence
+  appended). A deterministic number check was added to the graph; together they reject 9 of 12.
+- The samples are small, so none of these differences should be called significant. See
+  [`eval/COMPARISON.md`](eval/COMPARISON.md) for the full analysis, the places the LangChain version cannot
+  reproduce the baseline exactly, and the limits of the comparison.
 
 ## ✅ Run Tests
 
