@@ -3,18 +3,22 @@
 Run from the repository root:
     PDF_PATH=/path/to/file.pdf python -m lc_rag.cli "Are pets allowed?"
     PDF_PATH=/path/to/file.pdf python -m lc_rag.cli            # interactive
+    PDF_PATH=/path/to/file.pdf python -m lc_rag.cli --mode graph "Are pets allowed?"
 """
 import argparse
 import os
 import sys
 
 from lc_rag.chain import LCRag
+from lc_rag.graph import GraphRag
 from ollama_check import OllamaNotReady, check_ollama
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m lc_rag.cli", description="Ask questions about a PDF (LangChain version).")
     p.add_argument("question", nargs="?", help="Question to ask. Omit for an interactive prompt.")
+    p.add_argument("--mode", choices=["chain", "graph"], default="chain",
+                   help="chain: plain LangChain pipeline. graph: LangGraph with grading, rewrite and verification.")
     p.add_argument("--k", type=int, default=10, help="Number of chunks to retrieve (default 10, same as the UI).")
     return p
 
@@ -42,9 +46,10 @@ def main(argv=None) -> int:
         sys.exit(str(exc))
 
     rag = LCRag(pdf_path, log=print)
+    pipeline = GraphRag(rag) if args.mode == "graph" else rag
 
     if args.question:
-        print_result(rag.answer(args.question, k=args.k))
+        print_result(pipeline.answer(args.question, k=args.k))
         return 0
 
     print("Ask a question (blank line or 'exit' to quit).")
@@ -55,7 +60,7 @@ def main(argv=None) -> int:
             break
         if not question or question.lower() in {"exit", "quit"}:
             break
-        print_result(rag.answer(question, k=args.k))
+        print_result(pipeline.answer(question, k=args.k))
     return 0
 
 
