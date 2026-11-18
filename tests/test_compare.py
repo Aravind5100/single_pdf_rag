@@ -341,3 +341,48 @@ def test_non_default_runs_must_choose_an_output_prefix(capsys):
     with pytest.raises(SystemExit) as err:
         compare_main(["--k", "10"])
     assert "--out-prefix" in str(err.value)
+
+
+# ---- structured graph fields (stop reason, refusal source, node timings) ----
+
+def graph_result(answer, trace, **fields):
+    r = result(answer, [19], trace)
+    r.update(fields)
+    return r
+
+
+def test_graph_record_carries_structured_fields_when_present_and_none_when_absent():
+    with_fields = score_record("graph", row("Q1", "fact", [19]),
+                               graph_result("a", HAPPY_TRACE, stop_reason="relevant", refusal_source="",
+                                            node_seconds={"retrieve": 0.1, "generate": 3.0}), 5.0)
+    assert with_fields["graph"]["stop_reason"] == "relevant"
+    assert with_fields["graph"]["node_seconds"] == {"retrieve": 0.1, "generate": 3.0}
+
+    old_style = score_record("graph", row("Q1", "fact", [19]), graph_result("a", HAPPY_TRACE), 5.0)
+    assert old_style["graph"]["stop_reason"] is None and old_style["graph"]["node_seconds"] is None
+
+
+def test_summarize_reports_sources_stop_reasons_and_mean_node_seconds():
+    recs = [
+        score_record("graph", row("A", "fact", [19]),
+                     graph_result("a", HAPPY_TRACE, stop_reason="relevant", refusal_source="",
+                                  node_seconds={"retrieve": 1.0, "generate": 4.0}), 5.0),
+        score_record("graph", row("N", "negative", []),
+                     graph_result(REFUSAL_MESSAGE, SKIPPED_TRACE, stop_reason="retries_exhausted",
+                                  refusal_source="generator", node_seconds={"retrieve": 3.0, "grade_context": 2.0}), 5.0),
+        score_record("graph", row("M", "negative", []),
+                     graph_result(REFUSAL_MESSAGE, REWRITE_TRACE, stop_reason="stalled",
+                                  refusal_source="verifier", node_seconds={"retrieve": 2.0}), 5.0),
+    ]
+    g = summarize(recs)["graph"]
+
+    assert (g["refused_by_generator"], g["refused_by_verifier"]) == (1, 1)
+    assert g["stop_reasons"] == {"relevant": 1, "retries_exhausted": 1, "stalled": 1}
+    assert g["mean_node_seconds"] == {"generate": 1.33, "grade_context": 0.67, "retrieve": 2.0}
+
+
+def test_summarize_works_on_results_saved_before_these_fields_existed():
+    recs = [score_record("graph", row("A", "fact", [19]), graph_result("a", HAPPY_TRACE), 5.0)]
+    g = summarize(recs)["graph"]
+    assert "refused_by_generator" not in g and "stop_reasons" not in g and "mean_node_seconds" not in g
+    render_tables({"graph": summarize(recs)})        # must not raise

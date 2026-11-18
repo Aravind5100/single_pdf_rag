@@ -158,6 +158,15 @@ def score_key_facts(facts: Optional[List[str]], answer: str) -> Optional[List[bo
     return [fact_found(f, answer_norm) for f in facts]
 
 
+def graph_info(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Decisions parsed from the trace, plus the structured fields the graph returns (absent in old results)."""
+    info = parse_trace(result.get("trace"))
+    if info is not None:
+        for key in ("stop_reason", "refusal_source", "node_seconds"):
+            info[key] = result.get(key)
+    return info
+
+
 def score_record(version: str, row: Dict[str, Any], result: Dict[str, Any], latency: float) -> Dict[str, Any]:
     negative = row["answer_type"] == "negative"
     pages = ordered_pages(result["retrieved_chunks"])
@@ -179,7 +188,7 @@ def score_record(version: str, row: Dict[str, Any], result: Dict[str, Any], late
         "key_fact_hits": fact_hits,
         "key_fact_recall": None if fact_hits is None else sum(fact_hits) / len(fact_hits),
         "latency_s": round(latency, 3),
-        "graph": parse_trace(result.get("trace")) if version == "graph" else None,
+        "graph": graph_info(result) if version == "graph" else None,
         "trace": result.get("trace"),
     }
 
@@ -234,6 +243,19 @@ def summarize(records: List[Dict[str, Any]]) -> Dict[str, Any]:
             "negative_verifier_rejected": sum(g["verify"] == "no" for _, g in neg_g),
             "negative_verifier_passed": sum(g["verify"] == "yes" for _, g in neg_g),
         }
+        # Structured fields (only present in results produced after the graph started returning them).
+        sources = [g.get("refusal_source") for g in graph if g.get("refusal_source") is not None]
+        if sources:
+            out["graph"]["refused_by_generator"] = sum(s == "generator" for s in sources)
+            out["graph"]["refused_by_verifier"] = sum(s == "verifier" for s in sources)
+        reasons = [g.get("stop_reason") for g in graph if g.get("stop_reason")]
+        if reasons:
+            out["graph"]["stop_reasons"] = {r: reasons.count(r) for r in sorted(set(reasons))}
+        timed = [g["node_seconds"] for g in graph if g.get("node_seconds")]
+        if timed:
+            names = sorted({n for t in timed for n in t})
+            # mean seconds per question spent in each node (0 for questions where the node did not run)
+            out["graph"]["mean_node_seconds"] = {n: round(sum(t.get(n, 0.0) for t in timed) / len(timed), 2) for n in names}
     return out
 
 
@@ -322,6 +344,13 @@ def render_tables(summary: Dict[str, Dict[str, Any]]) -> str:
             f"| Answerable: generator already refused / verifier rejected an answer | {g['answerable_generator_refused']} / {g['answerable_verifier_rejected']} |\n"
             f"| Negative: generator already refused / verifier rejected / verifier passed | {g['negative_generator_refused']} / {g['negative_verifier_rejected']} / {g['negative_verifier_passed']} |\n"
         )
+        if "refused_by_generator" in g:
+            text += f"| Final refusals by source: generator / verifier | {g['refused_by_generator']} / {g['refused_by_verifier']} |\n"
+        if "stop_reasons" in g:
+            text += "| Why the retrieve/grade loop stopped | " + ", ".join(f"{k}: {v}" for k, v in g["stop_reasons"].items()) + " |\n"
+        if "mean_node_seconds" in g:
+            text += ("\nLangGraph: mean seconds per question spent in each node\n\n| Node | Seconds |\n|---|---|\n"
+                     + "".join(f"| {n} | {s:.2f} |\n" for n, s in g["mean_node_seconds"].items()))
     return text
 
 
