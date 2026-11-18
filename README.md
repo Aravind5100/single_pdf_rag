@@ -89,6 +89,7 @@ flowchart TD
 │   └── app_lc.py            # separate Streamlit page
 │
 ├── tests/                   # pytest suite (mocked, no Ollama needed)
+├── pytest.ini               # test path and import settings
 ├── cache/                   # Persistent embeddings + FAISS (git-ignored)
 ├── LEARNING_NOTES.md        # State, nodes and conditional edges in plain language
 ├── requirements.txt
@@ -115,6 +116,12 @@ Ground truth is defined manually in `eval/eval_dataset.jsonl` using:
 `eval/eval_runner.py` measures retrieval only. It does not call the generation model, and negative
 cases are excluded from the Recall@K and MRR averages. Refusal correctness and latency are scored
 by `eval/compare.py` (see "Two versions" below).
+
+Page numbers in the dataset are 1-based PDF page indexes, which is what the pipeline reports. The
+handbook also prints its own page numbers, and they run one lower (the pets policy is on PDF page 19,
+printed page 18). The repository root also holds `evaluation_questions.docx`, a human-readable copy of
+the original 10 questions that is not used by any code. It lists Q1 and Q2 with the printed page (18)
+while the dataset uses the PDF page (19), so treat the `.jsonl` files as the source of truth.
 
 This ensures evaluation is objective, reproducible, and actionable for debugging.
 
