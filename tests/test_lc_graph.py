@@ -2,7 +2,7 @@
 from langchain_core.documents import Document
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from lc_rag.graph import GraphRag, clean_query, parse_yes_no
+from lc_rag.graph import GraphRag, clean_query, parse_yes_no, same_query
 from lc_rag.prompts import REFUSAL_MESSAGE
 
 
@@ -11,7 +11,8 @@ class FakeRag:
 
     def __init__(self, answer="Pets are not allowed [Page 19].", rewrite="pets residence halls policy"):
         self.answer = answer
-        self.llm = FakeListChatModel(responses=[rewrite])
+        # `rewrite` is one reply (returned every time) or a list (returned in order).
+        self.llm = FakeListChatModel(responses=[rewrite] if isinstance(rewrite, str) else rewrite)
         self.retrieve_queries = []
 
     def retrieve(self, query, k):
@@ -52,16 +53,35 @@ def test_irrelevant_context_triggers_a_rewrite_then_recovers():
     assert out["answer"] == "Pets are not allowed [Page 19]."
 
 
-def test_retry_cap_stops_the_loop_after_two_rewrites():
-    # Grader says "no" every time: 3 retrievals, 2 rewrites, then generate anyway;
-    # the verifier (also "no") sends it to refuse.
-    rag, out = run(["no"])               # the fake cycles, so every call returns "no"
+def test_retry_cap_stops_the_loop_after_two_distinct_rewrites():
+    # Grader says "no" every time and each rewrite is different: 3 retrievals, 2 rewrites,
+    # then generate anyway; the verifier (also "no") sends it to refuse.
+    rag, out = run(["no"], rag=FakeRag(rewrite=["first query", "second query"]))
 
-    assert len(rag.retrieve_queries) == 3
+    assert rag.retrieve_queries == ["Are pets allowed?", "first query", "second query"]
     assert steps(out).count("rewrite_query") == 2
     assert out["retries"] == 2
     assert steps(out)[-3:] == ["generate", "verify", "refuse"]
     assert out["answer"] == REFUSAL_MESSAGE and out["refused"]
+
+
+def test_repeated_rewrite_stops_the_loop_without_another_search_or_grade():
+    # The fake returns the same rewrite every time, so the second rewrite repeats the first.
+    rag, out = run(["no"])
+
+    assert rag.retrieve_queries == ["Are pets allowed?", "pets residence halls policy"]   # no third search
+    assert steps(out) == ["retrieve", "grade_context", "rewrite_query", "retrieve", "grade_context",
+                          "rewrite_query", "generate", "verify", "refuse"]                # no third grade
+    assert "unchanged, stopping retries" in out["trace"][5]
+    assert out["retries"] == 2
+
+
+def test_rewrite_identical_to_the_question_stops_at_the_first_rewrite():
+    rag, out = run(["no"], rag=FakeRag(rewrite="are pets allowed"))    # same as the question, ignoring case
+
+    assert rag.retrieve_queries == ["Are pets allowed?"]
+    assert steps(out)[:4] == ["retrieve", "grade_context", "rewrite_query", "generate"]
+    assert out["retries"] == 1
 
 
 def test_max_retries_zero_never_rewrites():
@@ -110,6 +130,11 @@ def test_parse_yes_no_is_strict():
     assert parse_yes_no("yes") and parse_yes_no("Yes.") and parse_yes_no("YES, it is supported")
     assert not parse_yes_no("no") and not parse_yes_no("No, not supported")
     assert not parse_yes_no("") and not parse_yes_no("maybe") and not parse_yes_no("I think yes")
+
+
+def test_same_query_ignores_case_punctuation_and_spacing():
+    assert same_query("Capital of France", "capital  of france!")
+    assert not same_query("capital of France", "capital of Germany")
 
 
 def test_clean_query_strips_noise_and_falls_back():

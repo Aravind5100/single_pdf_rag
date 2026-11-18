@@ -2,7 +2,9 @@
 
     START -> retrieve -> grade_context
     grade_context --relevant, or retries exhausted--> generate
-    grade_context --not relevant and retries < MAX--> rewrite_query -> retrieve
+    grade_context --not relevant and retries < MAX--> rewrite_query
+    rewrite_query --new query--> retrieve
+    rewrite_query --same query as before--> generate   (another search would find nothing new)
     generate -> verify
     verify --supported--> END
     verify --not supported--> refuse -> END
@@ -39,6 +41,7 @@ class RagState(TypedDict, total=False):
     relevant: bool                      # grader decision for the latest chunks
     answer: str
     retries: int                        # how many rewrites have happened so far
+    stalled: bool                       # the latest rewrite repeated the previous query
     supported: bool                     # verifier decision for the answer
     trace: Annotated[List[str], operator.add]   # each node appends; operator.add concatenates
 
@@ -76,6 +79,12 @@ def parse_yes_no(text: str) -> bool:
     """Strict parse: True only if the reply's first word is 'yes'. Anything else is 'no'."""
     words = re.findall(r"[a-z]+", text.lower())
     return bool(words) and words[0] == "yes"
+
+
+def same_query(a: str, b: str) -> bool:
+    """True if two queries are the same ignoring case, punctuation and spacing."""
+    norm = lambda s: re.sub(r"\W+", " ", s.lower()).strip()
+    return norm(a) == norm(b)
 
 
 def clean_query(text: str, fallback: str) -> str:
@@ -122,8 +131,10 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
         previous = state.get("rewritten_query") or state["question"]
         raw = rag.llm.invoke(REWRITE_PROMPT.format(question=state["question"], previous=previous)).content
         query = clean_query(raw, fallback=state["question"])
-        return {"rewritten_query": query, "retries": state["retries"] + 1,
-                **note(f"rewrite_query: {previous!r} -> {query!r} (retries now {state['retries'] + 1})")}
+        stalled = same_query(query, previous)
+        suffix = "; unchanged, stopping retries" if stalled else ""
+        return {"rewritten_query": query, "retries": state["retries"] + 1, "stalled": stalled,
+                **note(f"rewrite_query: {previous!r} -> {query!r} (retries now {state['retries'] + 1}){suffix}")}
 
     def generate(state: RagState) -> Dict[str, Any]:
         answer = rag.generate(state["chunks"], state["question"])
@@ -148,6 +159,11 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
             return "generate"
         return "rewrite_query"
 
+    def route_after_rewrite(state: RagState) -> str:
+        # A rewrite that repeats the previous query cannot retrieve anything new, so
+        # skip the repeat retrieval and grading call and answer with what we have.
+        return "generate" if state["stalled"] else "retrieve"
+
     def route_after_verify(state: RagState) -> str:
         return END if state["supported"] else "refuse"
 
@@ -163,7 +179,8 @@ def build_graph(rag: LCRag, judge_llm: Optional[BaseChatModel] = None, max_retri
     graph.add_edge("retrieve", "grade_context")
     graph.add_conditional_edges("grade_context", route_after_grade,
                                 {"generate": "generate", "rewrite_query": "rewrite_query"})
-    graph.add_edge("rewrite_query", "retrieve")
+    graph.add_conditional_edges("rewrite_query", route_after_rewrite,
+                                {"retrieve": "retrieve", "generate": "generate"})
     graph.add_edge("generate", "verify")
     graph.add_conditional_edges("verify", route_after_verify, {END: END, "refuse": "refuse"})
     graph.add_edge("refuse", END)
@@ -179,7 +196,7 @@ class GraphRag:
 
     def answer(self, question: str, k: int = 10) -> Dict[str, Any]:
         final = self.graph.invoke(
-            {"question": question, "k": k, "rewritten_query": "", "retries": 0, "trace": []},
+            {"question": question, "k": k, "rewritten_query": "", "retries": 0, "stalled": False, "trace": []},
             config={"recursion_limit": RECURSION_LIMIT},
         )
         return {

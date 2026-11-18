@@ -26,6 +26,7 @@ write to it. In code it is a typed dictionary, `RagState`:
 | `relevant` | The grader's yes/no for those chunks. |
 | `answer` | The answer text so far. |
 | `retries` | How many rewrites have happened. This is what stops endless loops. |
+| `stalled` | True when the latest rewrite repeated the previous query, so another search would find nothing new. |
 | `supported` | The verifier's yes/no for the answer. |
 | `trace` | A running log of what each step decided, so you can read the path afterwards. |
 
@@ -43,7 +44,7 @@ Mine are:
 |---|---|
 | `retrieve` | Search the PDF (BM25 plus FAISS) using the rewritten query if there is one, else the question. |
 | `grade_context` | Ask the model "does this context help answer the question? yes or no". |
-| `rewrite_query` | Ask the model for a better search query, and add 1 to `retries`. |
+| `rewrite_query` | Ask the model for a better search query, add 1 to `retries`, and note whether the new query is the same as the previous one (`stalled`). |
 | `generate` | Answer the original question from the chunks, using the grounded prompt. |
 | `verify` | Ask the model "is every claim in this answer supported by the context? yes or no". |
 | `refuse` | Replace the answer with the fixed refusal sentence. |
@@ -55,16 +56,19 @@ Nodes do not decide what comes next. They only do their job and update the noteb
 **Edges** connect nodes. There are two kinds.
 
 **Normal edges** always go to the same place. `retrieve` always goes to `grade_context`.
-`generate` always goes to `verify`. `rewrite_query` always goes back to `retrieve`.
+`generate` always goes to `verify`.
 
 **Conditional edges** run a small **routing function** that reads the state and returns the name of
-the next node. This is where decisions live. I have two:
+the next node. This is where decisions live. I have three:
 
 ```python
 def route_after_grade(state):
     if state["relevant"] or state["retries"] >= max_retries:
         return "generate"
     return "rewrite_query"
+
+def route_after_rewrite(state):
+    return "generate" if state["stalled"] else "retrieve"
 
 def route_after_verify(state):
     return END if state["supported"] else "refuse"
@@ -78,7 +82,8 @@ flowchart TD
     R --> G[grade_context]
     G -->|relevant, or retries used up| GEN[generate]
     G -->|not relevant and retries < 2| RW[rewrite_query]
-    RW --> R
+    RW -->|new query| R
+    RW -->|same query as before| GEN
     GEN --> V[verify]
     V -->|supported| E([END])
     V -->|not supported| RF[refuse]
@@ -87,12 +92,16 @@ flowchart TD
 
 ## Why the loop cannot run forever
 
-The loop is `retrieve -> grade_context -> rewrite_query -> retrieve`. Two things stop it:
+The loop is `retrieve -> grade_context -> rewrite_query -> retrieve`. Three things stop it:
 
 1. **The retry counter.** `rewrite_query` adds 1 to `retries`, and `route_after_grade` refuses to
    loop again once `retries` reaches 2. So there are at most 3 retrievals per question.
-2. **A recursion limit.** LangGraph is also told to abort any run that takes more than 25 steps.
-   This is a second safety net in case the first one ever has a bug.
+2. **The stall check.** If a rewrite produces the same query as the previous one, searching again
+   would return the same chunks, so `route_after_rewrite` skips straight to `generate`. (In my first
+   comparison run, all 7 questions that used both retries wasted the second one this way, which is why
+   the check exists.)
+3. **A recursion limit.** LangGraph is also told to abort any run that takes more than 25 steps.
+   This is a safety net in case the other two ever have a bug.
 
 ## A worked example from a real run
 
@@ -104,18 +113,17 @@ grade_context -> relevant=no  (retries 0/2)
 rewrite_query -> "Student parking handbook rules and fines"  (retries now 1)
 retrieve      -> 6 chunks
 grade_context -> relevant=no  (retries 1/2)
-rewrite_query -> "Student parking handbook rules and fines"  (retries now 2)
-retrieve      -> 6 chunks
-grade_context -> relevant=no  (retries 2/2)   <- retries used up, so go to generate anyway
+rewrite_query -> "Student parking handbook rules and fines"  (retries now 2, unchanged, so stop retrying)
 generate      -> the model already answered with the refusal sentence
 verify        -> skipped, because a refusal makes no claims to check
 refuse        -> fixed refusal sentence
 ```
 
 You can read this from the `trace` field. Two things to notice. The graph reached the right answer
-(the handbook has no such rules). And the second rewrite produced the same query as the first, so
-that retry bought nothing. A graph makes behavior like this visible, which is useful for learning
-even when it does not improve the score.
+(the handbook has no such rules). And the second rewrite produced the same query as the first, which
+the stall check caught: before that check existed, the graph searched and graded a third time for
+nothing. A graph makes behavior like this visible, which is useful for learning even when it does not
+improve the score.
 
 ## Mapping the ideas to the code
 
@@ -124,7 +132,7 @@ even when it does not improve the score.
 | State | `RagState` in `lc_rag/graph.py` |
 | Nodes | the inner functions `retrieve`, `grade_context`, `rewrite_query`, `generate`, `verify`, `refuse` inside `build_graph` |
 | Normal edges | `graph.add_edge(...)` |
-| Conditional edges | `graph.add_conditional_edges(...)` with `route_after_grade` and `route_after_verify` |
+| Conditional edges | `graph.add_conditional_edges(...)` with `route_after_grade`, `route_after_rewrite` and `route_after_verify` |
 | Retry cap | `max_retries` (default `MAX_RETRIES = 2`) and `RECURSION_LIMIT` |
 | Reading the path | `result["trace"]`, printed by `python -m lc_rag.cli --mode graph` and shown in the Streamlit page |
 
