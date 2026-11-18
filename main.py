@@ -1,19 +1,6 @@
 import os
 
-from persistence import (
-    build_cache_key,
-    cache_paths,
-    cache_exists,
-    save_embedded_chunks,
-    load_embedded_chunks,
-    save_faiss_index,
-    load_faiss_index,
-    save_meta,
-)
-from extract_pdf_text import extract_text_from_pdf
-from chunk_strategy import chunk_pages, CHUNK_SIZE, OVERLAP
-from embedding_strategy import embed_chunks, EMBED_MODEL
-from index_strategy import build_faiss_index
+from artifacts import load_or_build_artifacts
 from generation_strategy import answer_question
 import streamlit as st
 
@@ -22,35 +9,7 @@ if not PDF_PATH:
     st.error("PDF_PATH environment variable not set. Please set it before running the app.")
     st.stop()
 
-cache_key = build_cache_key(
-    PDF_PATH,
-    chunk_size=CHUNK_SIZE,
-    overlap=OVERLAP,
-    embed_model=EMBED_MODEL,
-)
-paths = cache_paths(cache_key)
-
-
-if cache_exists(paths):
-    st.write("Loading embeddings + FAISS index from cache...")
-    embedded_chunks = load_embedded_chunks(paths["chunks"])
-    index = load_faiss_index(paths["index"])
-else:
-    st.write("First run: extracting PDF, chunking, embedding, building FAISS index...")
-    pages = extract_text_from_pdf(PDF_PATH)
-    chunks = chunk_pages(pages)
-    embedded_chunks = embed_chunks(chunks)
-    index, vectors = build_faiss_index(embedded_chunks)
-
-    save_embedded_chunks(paths["chunks"], embedded_chunks)
-    save_faiss_index(paths["index"], index)
-    save_meta(paths["meta"], {
-        "pdf_path": PDF_PATH,
-        "chunk_size": CHUNK_SIZE,
-        "overlap": OVERLAP,
-        "embed_model": EMBED_MODEL,
-    })
-    st.write("Cache saved. Next run will be fast.")
+embedded_chunks, index = load_or_build_artifacts(PDF_PATH, log=st.write)
 
 
 st.write("Hi! How can I help you? (type 'exit' to quit)")

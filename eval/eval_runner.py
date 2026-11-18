@@ -4,10 +4,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Set
-from extract_pdf_text import extract_text_from_pdf
-from chunk_strategy import chunk_pages
-from embedding_strategy import embed_chunks
-from index_strategy import build_faiss_index, hybrid_retrieve_indices
+from artifacts import load_or_build_artifacts
+from index_strategy import hybrid_retrieve_indices
 from generation_strategy import generate_answer
 
 
@@ -64,14 +62,11 @@ def reciprocal_rank(retrieved_pages: List[int], gt_pages: List[int]) -> float:
 # ------------- YOUR PIPELINE HOOKS -------------
 
 def build_rag_artifacts(pdf_path: str):
-    """Builds chunks, embeddings, and FAISS index once (offline step)."""
-    pages = extract_text_from_pdf(pdf_path)         
-    chunks = chunk_pages(pages)                     
-    embedded_chunks = embed_chunks(chunks)          
-    index, vectors = build_faiss_index(embedded_chunks)
+    """Loads chunks, embeddings, and the FAISS index from cache, building them on a miss.
 
-    # We return everything we need to retrieve chunks later
-    return embedded_chunks, index
+    Uses the same cache layer as main.py, so repeat eval runs do not re-embed.
+    """
+    return load_or_build_artifacts(pdf_path, log=print)
 
 
 def retrieve_top_k(
